@@ -3,3 +3,6 @@
 /*.pdf
 /Related_Works
 /Replay
+results/
+/*__pycache__/
+*.pyc
