@@ -405,3 +405,145 @@ class SC2TacticsDHLSEnv(te.SC2TacticsEnv):
             if a_tag == t_unit.tag:
                 return True
         return updated
+
+    def reset(self):
+        result = super().reset()
+        # init enemy base pos
+        for e_id, e_unit in self.enemies.items():
+            if e_unit.unit_type == 18:
+                self.enemy_base_pos = (e_unit.pos.x, e_unit.pos.y)
+                break
+        # calculate map diagonale distance
+        self.map_diagonal_distance = math.sqrt(
+            (self.map_x ** 2) + (self.map_y ** 2)
+        )
+        return result
+
+    def reward_battle(self):
+        """Reward function when self.reward_spare==False.
+        Returns accumulative hit/shield point damage dealt to the enemy
+        + reward_death_value per enemy unit killed, and, in case
+        self.reward_only_positive == False, - (damage dealt to ally units
+        + reward_death_value per ally unit killed) * self.reward_negative_scale
+        """
+        if self.reward_sparse:
+            return 0
+
+        reward = 0
+        delta_deaths = 0
+        delta_ally = 0
+        delta_enemy = 0
+
+        neg_scale = self.reward_negative_scale
+
+        # update deaths
+        for al_id, al_unit in self.agents.items():
+            if self.check_unit_condition(al_unit, al_id):
+                # did not die so far
+                prev_health = 0
+                if self.previous_ally_units[al_id] == None:
+                    prev_health = al_unit.health + al_unit.shield
+                else:
+                    prev_health = (
+                        self.previous_ally_units[al_id].health
+                        + self.previous_ally_units[al_id].shield
+                    )
+                if al_unit.health == 0:
+                    # just died
+                    self.death_tracker_ally[al_id] = 1
+                    if not self.reward_only_positive:
+                        delta_deaths -= self.reward_death_value * neg_scale
+                    delta_ally += prev_health * neg_scale
+                else:
+                    # still alive
+                    delta_ally += neg_scale * (
+                        prev_health - al_unit.health - al_unit.shield
+                    )
+
+        for e_id, e_unit in self.enemies.items():
+            if e_unit != None and not self.death_tracker_enemy[e_id]:
+                prev_health = (
+                    self.previous_enemy_units[e_id].health
+                    + self.previous_enemy_units[e_id].shield
+                )
+                if e_unit.health == 0:
+                    self.death_tracker_enemy[e_id] = 1
+                    delta_deaths += self.reward_death_value
+                    delta_enemy += prev_health
+                else:
+                    delta_enemy += prev_health - e_unit.health - e_unit.shield
+
+        
+        # TODO Custom reward
+        custom_reward = 0
+        # min enemy distance to base
+        min_prev_dist = float("inf")
+        min_curr_dist = float("inf")
+        for e_id, e_unit in self.enemies.items():
+            if e_unit.unit_type != 18:
+                prev_dist = math.sqrt(
+                    (self.previous_enemy_units[e_id].pos.x - self.enemy_base_pos[0]) ** 2
+                    + (self.previous_enemy_units[e_id].pos.y - self.enemy_base_pos[1]) ** 2
+                )
+                curr_dist = math.sqrt(
+                    (e_unit.pos.x - self.enemy_base_pos[0]) ** 2
+                    + (e_unit.pos.y - self.enemy_base_pos[1]) ** 2
+                )
+                if prev_dist < min_prev_dist:
+                    min_prev_dist = prev_dist
+                if curr_dist < min_curr_dist:
+                    min_curr_dist = curr_dist
+        custom_reward += (min_curr_dist / min_prev_dist) * 10  # scale factor
+
+        # reward for roach to attract enemy units
+        for e_id, e_unit in self.enemies.items():
+            if e_unit.unit_type == 18 or e_unit.health < 0:
+                continue
+            for a_id, a_unit in self.agents.items():
+                if a_unit.unit_type != self.rlunit_ids.get("roach")
+                    continue
+                if not self.check_unit_condition(a_unit, a_id):
+                    continue
+                dist = self.distance(
+                    e_unit.pos.x, e_unit.pos.y, a_unit.pos.x, a_unit.pos.y
+                )
+                if dist >= self.unit_sight_range(a_id):
+                    continue
+                custom_reward += 5
+                break
+
+        # reward for zergling attack base and avoid fighting
+        for a_id, a_unit in self.agents.items():
+            if a_unit.unit_type != self.rlunit_ids.get("zergling"):
+                continue
+            if not self.check_unit_condition(a_unit, a_id):
+                continue
+            dist = self.distance(
+                a_unit.pos.x, a_unit.pos.y, self.enemy_base_pos[0], self.enemy_base_pos[1]
+            )
+            if dist < self.unit_sight_range(a_id):
+                custom_reward += 5
+            # avoid fighting
+            if self.reward_only_positive:
+                continue
+            for e_id, e_unit in self.enemies.items():
+                if e_unit.unit_type == 18 or e_unit.health < 0:
+                    continue
+                dist2 = self.distance(
+                    e_unit.pos.x, e_unit.pos.y, a_unit.pos.x, a_unit.pos.y
+                )
+                if dist2 < self.unit_sight_range(a_id):
+                    custom_reward -= 5
+                    break
+
+
+        # TODO END
+
+        if self.reward_only_positive:
+            reward = abs(delta_enemy + delta_deaths + custom_reward)  # shield regeneration
+        else:
+            reward = delta_enemy + delta_deaths - delta_ally + custom_reward
+
+        self.delta_enemy, self.delta_deaths, self.delta_ally = delta_enemy, delta_deaths, delta_ally
+
+        return reward
