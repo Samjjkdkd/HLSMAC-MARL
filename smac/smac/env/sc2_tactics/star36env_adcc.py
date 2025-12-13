@@ -339,8 +339,26 @@ class SC2TacticsADCCEnv(te.SC2TacticsEnv):
                 grid_y = int(al_unit.pos.y // grid_size)
                 grid_pos = (grid_x, grid_y)
                 
-                # If this is a new grid position for this agent
-                if grid_pos not in self.exploration_history[al_id]:
+                # Check if the unit is near map boundaries
+                # Define boundary threshold as the smaller value between hatchery's x and y coordinates
+                # Use dynamically obtained map size from parent class
+                map_size_x = self.map_x
+                map_size_y = self.map_y
+                # print(map_size_x, map_size_y)
+                if hatchery_pos is not None:
+                    # Use the smaller of hatchery's x and y coordinates as boundary threshold
+                    boundary_threshold = min(hatchery_pos[0], hatchery_pos[1])
+                else:
+                    # Default boundary threshold if hatchery not found
+                    boundary_threshold = 16.0
+                
+                is_near_boundary = (al_unit.pos.x < boundary_threshold or 
+                                   al_unit.pos.x > map_size_x - boundary_threshold or 
+                                   al_unit.pos.y < boundary_threshold or 
+                                   al_unit.pos.y > map_size_y - boundary_threshold)
+                
+                # If this is a new grid position for this agent and not near boundary
+                if grid_pos not in self.exploration_history[al_id] and not is_near_boundary:
                     self.exploration_history[al_id].add(grid_pos)
                     
                     if hatchery_pos is not None:
@@ -349,16 +367,42 @@ class SC2TacticsADCCEnv(te.SC2TacticsEnv):
                             al_unit.pos.x, al_unit.pos.y, hatchery_pos[0], hatchery_pos[1]
                         )
                         
-                        # Scale reward based on distance from hatchery for 80x80 map
-                        # Base reward: 5, maximum additional reward: 25 (total 30 for far areas)
-                        # Reward increases with distance, capped at 30
-                        # For 80x80 map, max possible distance is ~113, so denominator 4 gives good scaling
-                        distance_bonus = min(25, dist_from_hatchery / 4)  # Adjusted for 80x80 map
-                        area_reward = 5 + distance_bonus
+                        # Determine which corner the hatchery is in
+                        map_center_x = map_size_x / 2
+                        map_center_y = map_size_y / 2
+                        hatchery_x = hatchery_pos[0]
+                        hatchery_y = hatchery_pos[1]
+                        
+                        # Identify hatchery corner
+                        # Bottom-left: x < center, y < center
+                        # Top-left: x < center, y > center
+                        # Bottom-right: x > center, y < center
+                        # Top-right: x > center, y > center
+                        corner_reward_bonus = 0
+                        
+                        if hatchery_x < map_center_x and hatchery_y < map_center_y:
+                            # Bottom-left corner - reward moving away from x=0 and y=0
+                            corner_reward_bonus = (al_unit.pos.x / map_size_x) + (al_unit.pos.y / map_size_y)
+                        elif hatchery_x < map_center_x and hatchery_y > map_center_y:
+                            # Top-left corner - reward moving away from x=0 and y=map_size_y
+                            corner_reward_bonus = (al_unit.pos.x / map_size_x) + ((map_size_y - al_unit.pos.y) / map_size_y)
+                        elif hatchery_x > map_center_x and hatchery_y < map_center_y:
+                            # Bottom-right corner - reward moving away from x=map_size_x and y=0
+                            corner_reward_bonus = ((map_size_x - al_unit.pos.x) / map_size_x) + (al_unit.pos.y / map_size_y)
+                        else:  # Top-right corner
+                            # Top-right corner - reward moving away from x=map_size_x and y=map_size_y
+                            corner_reward_bonus = ((map_size_x - al_unit.pos.x) / map_size_x) + ((map_size_y - al_unit.pos.y) / map_size_y)
+                        
+                        # Scale reward based on distance from hatchery and corner direction
+                        # Adjusted for 96x96 map (was 20 for 80x80)
+                        distance_bonus = min(5, dist_from_hatchery / 24)  # Base distance bonus
+                        corner_bonus = min(5, corner_reward_bonus * 2.5)  # Scale corner reward (max 5)
+                        area_reward = distance_bonus + corner_bonus
+                        # print(distance_bonus, corner_bonus)
                     else:
                         # If no hatchery found, use base reward
-                        area_reward = 5
-                    
+                        area_reward = 0
+
                     exploration_reward += area_reward
         reward += exploration_reward
         
@@ -385,7 +429,7 @@ class SC2TacticsADCCEnv(te.SC2TacticsEnv):
         # 3. Enemy base destruction reward: Increased reward for destroying enemy CommandCenter
         enemy_command_center_destroyed = self.check_structure(ally=False)
         if enemy_command_center_destroyed:
-            reward += 500  # Massive reward for destroying enemy base
+            reward += 1000  # Massive reward for destroying enemy base
         
         # 4. Original battle rewards (damage and kills)
         # Update deaths
@@ -418,12 +462,18 @@ class SC2TacticsADCCEnv(te.SC2TacticsEnv):
                     self.previous_enemy_units[e_id].health
                     + self.previous_enemy_units[e_id].shield
                 )
+                # Check if this is the enemy CommandCenter
+                is_command_center = (e_unit.unit_type == 18)
+                
+                # Damage multiplier for attacking enemy CommandCenter
+                damage_multiplier = 3.0 if is_command_center else 1.0
+                
                 if e_unit.health == 0:
                     self.death_tracker_enemy[e_id] = 1
                     delta_deaths += self.reward_death_value
-                    delta_enemy += prev_health
+                    delta_enemy += prev_health * damage_multiplier
                 else:
-                    delta_enemy += prev_health - e_unit.health - e_unit.shield
+                    delta_enemy += (prev_health - e_unit.health - e_unit.shield) * damage_multiplier
 
         # Add original battle rewards
         if self.reward_only_positive:
@@ -434,6 +484,6 @@ class SC2TacticsADCCEnv(te.SC2TacticsEnv):
         reward += battle_reward
 
         self.delta_enemy, self.delta_deaths, self.delta_ally = delta_enemy, delta_deaths, delta_ally
-        #print("adcc_reward:", reward, "delta_enemy:", delta_enemy, "delta_deaths:", delta_deaths, "delta_ally:", delta_ally,
-        #      "exploration_reward:", exploration_reward, "battle_reward:", battle_reward)
+        # print("adcc_reward:", reward, "delta_enemy:", delta_enemy, "delta_deaths:", delta_deaths, "delta_ally:", delta_ally,
+        #       "exploration_reward:", exploration_reward, "battle_reward:", battle_reward)
         return reward
