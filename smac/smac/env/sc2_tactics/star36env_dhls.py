@@ -500,7 +500,7 @@ class SC2TacticsDHLSEnv(te.SC2TacticsEnv):
             if e_unit.unit_type == 18 or e_unit.health < 0:
                 continue
             for a_id, a_unit in self.agents.items():
-                if a_unit.unit_type != self.rlunit_ids.get("roach")
+                if a_unit.unit_type != self.rlunit_ids.get("roach"):
                     continue
                 if not self.check_unit_condition(a_unit, a_id):
                     continue
