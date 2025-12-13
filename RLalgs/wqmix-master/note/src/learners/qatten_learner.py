@@ -99,8 +99,8 @@ class QattenLearner:
         # Mix
         if self.mixer is not None:
             if self.mixer.name == 'qatten':
-                chosen_action_qvals, q_attend_regs, head_entropies = self.mixer(chosen_action_qvals, batch["state"][:, :-1], actions)
-                target_max_qvals, _, _ = self.target_mixer(target_max_qvals, batch["state"][:, 1:], target_next_actions)
+                chosen_action_qvals, q_attend_regs, head_entropies, adjacency_matrix = self.mixer(chosen_action_qvals, batch["state"][:, :-1], actions)
+                target_max_qvals, _, _, _ = self.target_mixer(target_max_qvals, batch["state"][:, 1:], target_next_actions)
             else:
                 chosen_action_qvals = self.mixer(chosen_action_qvals, batch["state"][:, :-1])
                 target_max_qvals = self.target_mixer(target_max_qvals, batch["state"][:, 1:])
@@ -153,7 +153,26 @@ class QattenLearner:
             self.logger.log_stat("q_taken_mean", (chosen_action_qvals * mask).sum().item()/(mask_elems * self.args.n_agents), t_env)
             self.logger.log_stat("target_mean", (targets * mask).sum().item()/(mask_elems * self.args.n_agents), t_env)
             if self.mixer.name == 'qatten':
+                # 监控图学习模块的性能
                 [self.logger.log_stat('head_{}_entropy'.format(h_i), ent.item(), t_env) for h_i, ent in enumerate(head_entropies)]
+                
+                # 记录邻接矩阵的统计信息
+                if hasattr(self.mixer, 'graph_learner') and adjacency_matrix is not None:
+                    # 邻接矩阵平均值
+                    self.logger.log_stat('adjacency_matrix_mean', adjacency_matrix.mean().item(), t_env)
+                    # 邻接矩阵稀疏性（非零元素比例）
+                    sparsity = (adjacency_matrix > 0.5).float().mean().item()  # 使用0.1作为阈值判断连接
+                    self.logger.log_stat('adjacency_matrix_sparsity', sparsity, t_env)
+                    # 邻接矩阵最大/最小值
+                    self.logger.log_stat('adjacency_matrix_max', adjacency_matrix.max().item(), t_env)
+                    self.logger.log_stat('adjacency_matrix_min', adjacency_matrix.min().item(), t_env)
+                    # 邻接矩阵标准差
+                    self.logger.log_stat('adjacency_matrix_std', adjacency_matrix.std().item(), t_env)
+                    
+                    # 打印完整邻接矩阵（每10000步打印一次，用于调试）
+                    if t_env % 10000 == 0:  # 每10000步打印一次
+                        print(f"Environment step {t_env} - Adjacency Matrix:")
+                        print(adjacency_matrix.detach().cpu().numpy()[0])  # 打印第一个batch的矩阵
             self.log_stats_t = t_env
 
     def _update_targets(self):

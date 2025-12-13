@@ -6,6 +6,61 @@ import numpy as np
 import pickle as pkl
 
 
+class GraphLearner(nn.Module):
+    def __init__(self, args):
+        super(GraphLearner, self).__init__()
+        self.args = args
+        self.n_agents = args.n_agents
+        self.state_dim = int(np.prod(args.state_shape))
+        self.unit_dim = args.unit_dim
+        self.hidden_dim = args.graph_hidden_dim
+        
+        # 构建边预测器网络
+        self.edge_predictor = nn.Sequential(
+            nn.Linear(2 * self.unit_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim, 1)
+        )
+        
+        # 可选：添加dropout层以防止过拟合
+        self.dropout = nn.Dropout(args.graph_dropout_rate)
+    
+    def forward(self, state, unit_states):
+        # state: (batch_size, state_dim)
+        # unit_states: (agent_num, batch_size, unit_dim)
+        batch_size = state.size(0)
+        
+        # 将unit_states转换为(batch_size, agent_num, unit_dim)格式
+        unit_states = unit_states.permute(1, 0, 2)
+        
+        # 准备所有智能体对的特征
+        # 将unit_states复制为(agent_num, batch_size, agent_num, unit_dim)
+        unit_states_i = unit_states.unsqueeze(2).repeat(1, 1, self.n_agents, 1)
+        unit_states_j = unit_states.unsqueeze(1).repeat(1, self.n_agents, 1, 1)
+        
+        # 连接每对智能体的特征
+        pair_features = th.cat([unit_states_i, unit_states_j], dim=-1)
+        pair_features = pair_features.reshape(-1, 2 * self.unit_dim)
+        
+        # 应用dropout
+        pair_features = self.dropout(pair_features)
+        
+        # 预测边的权重
+        edge_logits = self.edge_predictor(pair_features)
+        edge_logits = edge_logits.reshape(batch_size, self.n_agents, self.n_agents)
+        
+        # 使用sigmoid将边权重归一化到[0, 1]范围
+        adjacency_matrix = F.sigmoid(edge_logits)
+        
+        # 可选：添加自环
+        if self.args.graph_add_self_loop:
+            adjacency_matrix = adjacency_matrix + th.eye(self.n_agents, device=adjacency_matrix.device).unsqueeze(0)
+        
+        return adjacency_matrix
+
+
 class QattenMixer(nn.Module):
     def __init__(self, args):
         super(QattenMixer, self).__init__()
@@ -21,6 +76,10 @@ class QattenMixer(nn.Module):
 
         self.embed_dim = args.mixing_embed_dim
         self.attend_reg_coef = args.attend_reg_coef
+        
+        # 初始化图学习模块
+        if args.use_graph_learner:
+            self.graph_learner = GraphLearner(args)
 
         self.key_extractors = nn.ModuleList()
         self.selector_extractors = nn.ModuleList()
@@ -79,6 +138,12 @@ class QattenMixer(nn.Module):
         all_head_keys = [[k_ext(enc) for enc in unit_states] for k_ext in self.key_extractors]
         # all_head_keys: (head_num, agent_num, batch_size, embed_dim)
 
+        # 使用图学习模块生成邻接矩阵E
+        adjacency_matrix = None
+        if hasattr(self, 'graph_learner'):
+            adjacency_matrix = self.graph_learner(states, unit_states)
+            # adjacency_matrix: (batch_size, agent_num, agent_num)
+
         # calculate attention per head
         head_qs = []
         head_attend_logits = []
@@ -99,6 +164,18 @@ class QattenMixer(nn.Module):
                 # actions: (batch_size, 1, agent_num)
                 scaled_attend_logits[actions == 0] = -99999999  # action == 0 means the unit is dead
             attend_weights = F.softmax(scaled_attend_logits, dim=2)  # (batch_size, 1, agent_num)
+            
+            # 应用图学习得到的邻接矩阵调整注意力权重
+            if adjacency_matrix is not None:
+                # 对每个智能体，只考虑其邻接矩阵中的对应行
+                # adjacency_matrix: (batch_size, agent_num, agent_num)
+                # attend_weights: (batch_size, 1, agent_num)
+                # 这里我们假设所有头共享同一个邻接矩阵，也可以为每个头学习不同的矩阵
+                adjusted_attend_weights = attend_weights * adjacency_matrix.mean(dim=1).unsqueeze(1)
+                # 重新归一化以确保权重和为1
+                adjusted_attend_weights = adjusted_attend_weights / (adjusted_attend_weights.sum(dim=2, keepdim=True) + 1e-8)
+                attend_weights = adjusted_attend_weights
+            
             # (batch_size, 1, agent_num) * (batch_size, 1, agent_num)
             head_q = (agent_qs * attend_weights).sum(dim=2)
             head_qs.append(head_q)
@@ -128,4 +205,4 @@ class QattenMixer(nn.Module):
         # regularize magnitude of attention logits
         attend_mag_regs = self.attend_reg_coef * sum((logit ** 2).mean() for logit in head_attend_logits)
         head_entropies = [(-((probs + 1e-8).log() * probs).squeeze(dim=1).sum(1).mean()) for probs in head_attend_weights]
-        return q_tot, attend_mag_regs, head_entropies
+        return q_tot, attend_mag_regs, head_entropies, adjacency_matrix

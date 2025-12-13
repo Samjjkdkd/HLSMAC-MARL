@@ -23,6 +23,15 @@ hypernet_embed: 64
 adv_hypernet_layers: 1
 adv_hypernet_embed: 64
 
+# --- Graph Learning specific parameters ---
+use_graph_learner: False
+# 图学习模块的隐藏层维度
+graph_hidden_dim: 64
+# 图学习模块的dropout率，用于防止过拟合
+graph_dropout_rate: 0.3
+# 是否在邻接矩阵中添加自环
+graph_add_self_loop: True
+
 num_kernel: 4
 is_minus_one: True
 is_adv_attention: True
