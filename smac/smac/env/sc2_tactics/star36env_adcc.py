@@ -48,6 +48,15 @@ class SC2TacticsADCCEnv(te.SC2TacticsEnv):
         print("----------------------")
         print("You create a ADCC env!")
         print("----------------------")
+        
+        # Initialize exploration history for each agent
+        self.exploration_history = {}
+        for agent_id in range(self.n_agents):
+            self.exploration_history[agent_id] = set()
+        
+        # Initialize variables to track enemy base discovery for each agent
+        self.enemy_base_discovered = [False for _ in range(self.n_agents)]
+        self.enemy_base_reward_given = [False for _ in range(self.n_agents)]
     
     def get_agent_action(self, a_id, action):
         """Construct the action for agent a_id."""
@@ -283,3 +292,148 @@ class SC2TacticsADCCEnv(te.SC2TacticsEnv):
                     return False
             return True
         return False
+    
+    def reset(self):
+        """Reset the environment and clear exploration history."""
+        result = super().reset()
+        
+        # Clear exploration history
+        for agent_id in range(self.n_agents):
+            self.exploration_history[agent_id] = set()
+        
+        # Reset enemy base discovery flags for each agent
+        self.enemy_base_discovered = [False for _ in range(self.n_agents)]
+        self.enemy_base_reward_given = [False for _ in range(self.n_agents)]
+        
+        return result
+    
+    def reward_battle(self):
+        """Custom reward function for ADCC scenario.
+        This overrides the base class reward_battle method to provide map-specific rewards.
+        """
+        if self.reward_sparse:
+            return 0
+
+        reward = 0
+        delta_deaths = 0
+        delta_ally = 0
+        delta_enemy = 0
+
+        neg_scale = self.reward_negative_scale
+
+        # 1. Exploration reward: Encourage agents to explore new areas, prioritize distant areas from hatchery
+        exploration_reward = 0
+        
+        # Find our hatchery position
+        hatchery_pos = None
+        for al_id, al_unit in self.agents.items():
+            if al_unit.unit_type == self.rlunit_ids.get("hatchery") and al_unit.health > 0:
+                hatchery_pos = (al_unit.pos.x, al_unit.pos.y)
+                break
+        
+        for al_id, al_unit in self.agents.items():
+            if al_unit.health > 0 and al_unit.unit_type != self.rlunit_ids.get("hatchery"):  # Only reward alive non-hatchery agents
+                # Quantize position to a grid to track explored areas
+                grid_size = 4.0  # Increased for 80x80 map scale
+                grid_x = int(al_unit.pos.x // grid_size)
+                grid_y = int(al_unit.pos.y // grid_size)
+                grid_pos = (grid_x, grid_y)
+                
+                # If this is a new grid position for this agent
+                if grid_pos not in self.exploration_history[al_id]:
+                    self.exploration_history[al_id].add(grid_pos)
+                    
+                    if hatchery_pos is not None:
+                        # Calculate distance from hatchery
+                        dist_from_hatchery = self.distance(
+                            al_unit.pos.x, al_unit.pos.y, hatchery_pos[0], hatchery_pos[1]
+                        )
+                        
+                        # Scale reward based on distance from hatchery for 80x80 map
+                        # Base reward: 5, maximum additional reward: 25 (total 30 for far areas)
+                        # Reward increases with distance, capped at 30
+                        # For 80x80 map, max possible distance is ~113, so denominator 4 gives good scaling
+                        distance_bonus = min(25, dist_from_hatchery / 4)  # Adjusted for 80x80 map
+                        area_reward = 5 + distance_bonus
+                    else:
+                        # If no hatchery found, use base reward
+                        area_reward = 5
+                    
+                    exploration_reward += area_reward
+        reward += exploration_reward
+        
+        # 2. Enemy base detection reward: High reward for each agent that first sees enemy CommandCenter
+        for al_id, al_unit in self.agents.items():
+            if al_unit.health > 0:
+                x = al_unit.pos.x
+                y = al_unit.pos.y
+                sight_range = self.unit_sight_range(al_id)
+                
+                # Check if any enemy unit is a CommandCenter and within sight range
+                for e_id, e_unit in self.enemies.items():
+                    if e_unit.health > 0 and e_unit.unit_type == 18:  # 18 is CommandCenter
+                        dist = self.distance(x, y, e_unit.pos.x, e_unit.pos.y)
+                        if dist < sight_range:
+                            self.enemy_base_discovered[al_id] = True
+                            break
+                
+                # Give a large one-time reward when this agent first detects enemy base
+                if self.enemy_base_discovered[al_id] and not self.enemy_base_reward_given[al_id]:
+                    self.enemy_base_reward_given[al_id] = True
+                    reward += 100  # Very large reward for finding enemy base
+        
+        # 3. Enemy base destruction reward: Increased reward for destroying enemy CommandCenter
+        enemy_command_center_destroyed = self.check_structure(ally=False)
+        if enemy_command_center_destroyed:
+            reward += 500  # Massive reward for destroying enemy base
+        
+        # 4. Original battle rewards (damage and kills)
+        # Update deaths
+        for al_id, al_unit in self.agents.items():
+            if self.check_unit_condition(al_unit, al_id):
+                # did not die so far
+                prev_health = 0
+                if self.previous_ally_units[al_id] == None:
+                    prev_health = al_unit.health + al_unit.shield
+                else:
+                    prev_health = (
+                        self.previous_ally_units[al_id].health
+                        + self.previous_ally_units[al_id].shield
+                    )
+                if al_unit.health == 0:
+                    # just died
+                    self.death_tracker_ally[al_id] = 1
+                    if not self.reward_only_positive:
+                        delta_deaths -= self.reward_death_value * neg_scale
+                    delta_ally += prev_health * neg_scale
+                else:
+                    # still alive
+                    delta_ally += neg_scale * (
+                        prev_health - al_unit.health - al_unit.shield
+                    )
+
+        for e_id, e_unit in self.enemies.items():
+            if e_unit != None and not self.death_tracker_enemy[e_id]:
+                prev_health = (
+                    self.previous_enemy_units[e_id].health
+                    + self.previous_enemy_units[e_id].shield
+                )
+                if e_unit.health == 0:
+                    self.death_tracker_enemy[e_id] = 1
+                    delta_deaths += self.reward_death_value
+                    delta_enemy += prev_health
+                else:
+                    delta_enemy += prev_health - e_unit.health - e_unit.shield
+
+        # Add original battle rewards
+        if self.reward_only_positive:
+            battle_reward = abs(delta_enemy + delta_deaths)  # shield regeneration
+        else:
+            battle_reward = delta_enemy + delta_deaths - delta_ally
+        
+        reward += battle_reward
+
+        self.delta_enemy, self.delta_deaths, self.delta_ally = delta_enemy, delta_deaths, delta_ally
+        #print("adcc_reward:", reward, "delta_enemy:", delta_enemy, "delta_deaths:", delta_deaths, "delta_ally:", delta_ally,
+        #      "exploration_reward:", exploration_reward, "battle_reward:", battle_reward)
+        return reward

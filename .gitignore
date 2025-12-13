@@ -4,5 +4,5 @@
 /Related_Works
 /Replay
 results/
-/*__pycache__/
+__pycache__/
 *.pyc
