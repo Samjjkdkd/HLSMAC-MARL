@@ -1,0 +1,1 @@
+tensorboard --logdir="/data1/zhouyanju/HLSMAC-MARL/RLalgs/wqmix-master/results/tb_logs"
