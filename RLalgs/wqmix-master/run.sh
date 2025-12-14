@@ -1,10 +1,9 @@
-CUDA_VISIBLE_DEVICES=7 \
+CUDA_VISIBLE_DEVICES=6 \
 python3 src/main.py \
---config=ow_qmix \
+--config=qatten \
 --env-config=sc2te \
 with \
-w=0.5 \
-central_mixer=atten \
-epsilon_anneal_time=1000000 \
-name=ow_qmix_bs32_fkwz \
-env_args.map_name=fkwz_te \
+epsilon_anneal_time=100000 \
+t_max=205000 \
+name=qatten_bs128_cr_dhls \
+env_args.map_name=dhls_te \
