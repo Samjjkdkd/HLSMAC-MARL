@@ -7,3 +7,7 @@ results/
 __pycache__/
 *.pyc
 3rdparty/
+evaluate.sh
+run.sh
+visual_log.sh
+plot.py
