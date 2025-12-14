@@ -411,6 +411,7 @@ class SC2TacticsDHLSEnv(te.SC2TacticsEnv):
         # init enemy base pos
         for e_id, e_unit in self.enemies.items():
             if e_unit.unit_type == 18:
+                self.enemy_base_id = e_id
                 self.enemy_base_pos = (e_unit.pos.x, e_unit.pos.y)
                 break
         # calculate map diagonale distance
@@ -476,11 +477,19 @@ class SC2TacticsDHLSEnv(te.SC2TacticsEnv):
         
         # TODO Custom reward
         custom_reward = 0
-        # min enemy distance to base
-        min_prev_dist = float("inf")
-        min_curr_dist = float("inf")
-        for e_id, e_unit in self.enemies.items():
-            if e_unit.unit_type != 18:
+
+        # reward for enemy units moving far away from base
+        alpha = 0.2
+        R_far = self.map_diagonal_distance * 0.4
+        if self.ratio_enemies_attracted_by_roach() >= 0.8:
+            # min enemy distance to base
+            prev_dist_list = []
+            curr_dist_list = []
+            for e_id, e_unit in self.enemies.items():
+                if e_unit == None or self.death_tracker_enemy[e_id]:
+                    continue
+                if e_unit.unit_type == 18 or e_unit.health <= 0:
+                    continue
                 prev_dist = math.sqrt(
                     (self.previous_enemy_units[e_id].pos.x - self.enemy_base_pos[0]) ** 2
                     + (self.previous_enemy_units[e_id].pos.y - self.enemy_base_pos[1]) ** 2
@@ -489,53 +498,38 @@ class SC2TacticsDHLSEnv(te.SC2TacticsEnv):
                     (e_unit.pos.x - self.enemy_base_pos[0]) ** 2
                     + (e_unit.pos.y - self.enemy_base_pos[1]) ** 2
                 )
-                if prev_dist < min_prev_dist:
-                    min_prev_dist = prev_dist
-                if curr_dist < min_curr_dist:
-                    min_curr_dist = curr_dist
-        custom_reward += (min_curr_dist / min_prev_dist) * 10  # scale factor
-
-        # reward for roach to attract enemy units
-        for e_id, e_unit in self.enemies.items():
-            if e_unit.unit_type == 18 or e_unit.health < 0:
-                continue
-            for a_id, a_unit in self.agents.items():
-                if a_unit.unit_type != self.rlunit_ids.get("roach"):
-                    continue
-                if not self.check_unit_condition(a_unit, a_id):
-                    continue
-                dist = self.distance(
-                    e_unit.pos.x, e_unit.pos.y, a_unit.pos.x, a_unit.pos.y
-                )
-                if dist >= self.unit_sight_range(a_id):
-                    continue
-                custom_reward += 5
-                break
+                prev_dist_list.append(prev_dist)
+                curr_dist_list.append(curr_dist)
+            if prev_dist_list and curr_dist_list:
+                mean_prev_dist = np.mean(prev_dist_list)
+                mean_curr_dist = np.mean(curr_dist_list)
+                if (
+                    math.isfinite(mean_prev_dist)
+                    and math.isfinite(mean_curr_dist)
+                ):
+                    phi_prev = min(mean_prev_dist, R_far)
+                    phi_curr = min(mean_curr_dist, R_far)
+                    custom_reward += alpha * (phi_curr - phi_prev)
 
         # reward for zergling attack base and avoid fighting
+        gamma = 0.3
+        prev_base_hp = self.previous_enemy_units[self.enemy_base_id].health
+        curr_base_hp = self.enemies[self.enemy_base_id].health
+        base_damage = max(0.0, prev_base_hp - curr_base_hp)
+        all_attackers_cnt = 0
+        zergling_attackers_cnt = 0
         for a_id, a_unit in self.agents.items():
-            if a_unit.unit_type != self.rlunit_ids.get("zergling"):
-                continue
             if not self.check_unit_condition(a_unit, a_id):
                 continue
-            dist = self.distance(
-                a_unit.pos.x, a_unit.pos.y, self.enemy_base_pos[0], self.enemy_base_pos[1]
-            )
-            if dist < self.unit_sight_range(a_id):
-                custom_reward += 5
-            # avoid fighting
-            if self.reward_only_positive:
+            if not self.is_attacking_base(a_id):
                 continue
-            for e_id, e_unit in self.enemies.items():
-                if e_unit.unit_type == 18 or e_unit.health < 0:
-                    continue
-                dist2 = self.distance(
-                    e_unit.pos.x, e_unit.pos.y, a_unit.pos.x, a_unit.pos.y
-                )
-                if dist2 < self.unit_sight_range(a_id):
-                    custom_reward -= 5
-                    break
-
+            all_attackers_cnt += 1
+            if(self.has_enemy_around(a_id)):
+                continue
+            if a_unit.unit_type == self.rlunit_ids.get("zergling"):
+                zergling_attackers_cnt += 1
+        if zergling_attackers_cnt > 0:
+            custom_reward += gamma * base_damage * float(zergling_attackers_cnt / all_attackers_cnt)
 
         # TODO END
 
@@ -547,3 +541,54 @@ class SC2TacticsDHLSEnv(te.SC2TacticsEnv):
         self.delta_enemy, self.delta_deaths, self.delta_ally = delta_enemy, delta_deaths, delta_ally
 
         return reward
+
+    def is_attacking_base(self, al_id):
+        """Check if an ally is attacking the enemy base."""
+        action = int(np.argmax(self.last_action[al_id]))
+        if action < self.n_actions_no_attack:
+            return False
+        target_id = action - self.n_actions_no_attack
+        target_unit = self.enemies[target_id]
+        if target_unit.unit_type == 18:
+            return True
+        return False
+    
+    def ratio_enemies_attracted_by_roach(self):
+        """Calculate the ratio of enemy units that are within sight range of any roach."""
+        n_attracted = 0
+        n_total = 0
+        for e_id, e_unit in self.enemies.items():
+            if e_unit == None or self.death_tracker_enemy[e_id]:
+                continue
+            if e_unit.unit_type == 18 or e_unit.health <= 0:
+                continue
+            n_total += 1
+            for a_id, a_unit in self.agents.items():
+                if a_unit.unit_type != self.rlunit_ids.get("roach"):
+                    continue
+                if not self.check_unit_condition(a_unit, a_id):
+                    continue
+                dist = self.distance(
+                    e_unit.pos.x, e_unit.pos.y, a_unit.pos.x, a_unit.pos.y
+                )
+                if dist <= self.unit_sight_range(a_id):
+                    n_attracted += 1
+                    break
+        if n_total == 0:
+            return 0.0
+        return n_attracted / n_total
+
+    def has_enemy_around(self, a_id):
+        """Check if there is any enemy unit around the ally unit."""
+        ally_unit = self.get_unit_by_id(a_id)
+        for e_id, e_unit in self.enemies.items():
+            if e_unit == None or self.death_tracker_enemy[e_id]:
+                continue
+            if e_unit.unit_type == 18 or e_unit.health <= 0:
+                continue
+            dist = self.distance(
+                ally_unit.pos.x, ally_unit.pos.y, e_unit.pos.x, e_unit.pos.y
+            )
+            if dist <= self.unit_sight_range(a_id):
+                return True
+        return False
