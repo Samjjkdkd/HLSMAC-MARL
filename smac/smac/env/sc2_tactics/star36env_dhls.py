@@ -479,40 +479,42 @@ class SC2TacticsDHLSEnv(te.SC2TacticsEnv):
         custom_reward = 0
 
         # reward for enemy units moving far away from base
-        alpha = 0.2
-        R_far = self.map_diagonal_distance * 0.4
-        if self.ratio_enemies_attracted_by_roach() >= 0.8:
-            # min enemy distance to base
-            prev_dist_list = []
-            curr_dist_list = []
-            for e_id, e_unit in self.enemies.items():
-                if e_unit == None or self.death_tracker_enemy[e_id]:
-                    continue
-                if e_unit.unit_type == 18 or e_unit.health <= 0:
-                    continue
-                prev_dist = math.sqrt(
-                    (self.previous_enemy_units[e_id].pos.x - self.enemy_base_pos[0]) ** 2
-                    + (self.previous_enemy_units[e_id].pos.y - self.enemy_base_pos[1]) ** 2
-                )
-                curr_dist = math.sqrt(
-                    (e_unit.pos.x - self.enemy_base_pos[0]) ** 2
-                    + (e_unit.pos.y - self.enemy_base_pos[1]) ** 2
-                )
-                prev_dist_list.append(prev_dist)
-                curr_dist_list.append(curr_dist)
-            if prev_dist_list and curr_dist_list:
-                mean_prev_dist = np.mean(prev_dist_list)
-                mean_curr_dist = np.mean(curr_dist_list)
-                if (
-                    math.isfinite(mean_prev_dist)
-                    and math.isfinite(mean_curr_dist)
-                ):
-                    phi_prev = min(mean_prev_dist, R_far)
-                    phi_curr = min(mean_curr_dist, R_far)
-                    custom_reward += alpha * (phi_curr - phi_prev)
+        alpha = 0.6
+        R_far = self.map_diagonal_distance * 0.3
+        # min enemy distance to base
+        prev_dist_list = []
+        curr_dist_list = []
+        for e_id, e_unit in self.enemies.items():
+            if e_unit == None or self.death_tracker_enemy[e_id]:
+                continue
+            if e_unit.unit_type == 18 or e_unit.health <= 0:
+                continue
+            prev_dist = math.sqrt(
+                (self.previous_enemy_units[e_id].pos.x - self.enemy_base_pos[0]) ** 2
+                + (self.previous_enemy_units[e_id].pos.y - self.enemy_base_pos[1]) ** 2
+            )
+            curr_dist = math.sqrt(
+                (e_unit.pos.x - self.enemy_base_pos[0]) ** 2
+                + (e_unit.pos.y - self.enemy_base_pos[1]) ** 2
+            )
+            prev_dist_list.append(prev_dist)
+            curr_dist_list.append(curr_dist)
+
+        if prev_dist_list and curr_dist_list:
+            mean_prev_dist = np.mean(prev_dist_list)
+            mean_curr_dist = np.mean(curr_dist_list)
+            if (
+                math.isfinite(mean_prev_dist)
+                and math.isfinite(mean_curr_dist)
+            ):
+                phi_prev = min(mean_prev_dist, R_far)
+                phi_curr = min(mean_curr_dist, R_far)
+                ratio = self.ratio_enemies_attracted_by_roach()
+                w = max(0.0, (ratio - 0.3) / 0.7)   # 0.3以下不给，0.3~1线性到1
+                custom_reward += alpha * w * (phi_curr - phi_prev)
 
         # reward for zergling attack base and avoid fighting
-        gamma = 0.3
+        gamma = 1
         prev_base_hp = self.previous_enemy_units[self.enemy_base_id].health
         curr_base_hp = self.enemies[self.enemy_base_id].health
         base_damage = max(0.0, prev_base_hp - curr_base_hp)
@@ -521,11 +523,11 @@ class SC2TacticsDHLSEnv(te.SC2TacticsEnv):
         for a_id, a_unit in self.agents.items():
             if not self.check_unit_condition(a_unit, a_id):
                 continue
-            if not self.is_attacking_base(a_id):
+            if not self.is_around_base(a_id):
                 continue
             all_attackers_cnt += 1
-            if(self.has_enemy_around(a_id)):
-                continue
+            # if(self.has_enemy_around(a_id)):
+            #     continue
             if a_unit.unit_type == self.rlunit_ids.get("zergling"):
                 zergling_attackers_cnt += 1
         if zergling_attackers_cnt > 0:
@@ -550,6 +552,17 @@ class SC2TacticsDHLSEnv(te.SC2TacticsEnv):
         target_id = action - self.n_actions_no_attack
         target_unit = self.enemies[target_id]
         if target_unit.unit_type == 18:
+            return True
+        return False
+
+    def is_around_base(self, al_id):
+        """Check if an ally is around the enemy base."""
+        ally_unit = self.get_unit_by_id(al_id)
+        dist = self.distance(
+            ally_unit.pos.x, ally_unit.pos.y,
+            self.enemy_base_pos[0], self.enemy_base_pos[1]
+        )
+        if dist <= self.unit_sight_range(al_id):
             return True
         return False
     
