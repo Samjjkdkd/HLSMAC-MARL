@@ -1294,8 +1294,8 @@ class SC2TacticsEnv(MultiAgentEnv):
         own_feats = self.unit_type_bits
         if self.obs_own_health:
             own_feats += 1 + self.shield_bits_ally
-        if self.obs_timestep_number:
-            own_feats += 1
+        # if self.obs_timestep_number:
+        #     own_feats += 1
 
         return own_feats
 
@@ -1321,8 +1321,10 @@ class SC2TacticsEnv(MultiAgentEnv):
 
         enemy_feats = n_enemies * n_enemy_feats
         ally_feats = n_allies * n_ally_feats
-
-        return move_feats + enemy_feats + ally_feats + own_feats
+        size = move_feats + enemy_feats + ally_feats + own_feats
+        if self.obs_timestep_number:
+            size += 1
+        return size
 
     def get_state_size(self):
         """Returns the size of the global state."""
