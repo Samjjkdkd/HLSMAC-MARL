@@ -4,7 +4,18 @@
 python src/main.py --config=ow_qmix --env-config=sc2te with env_args.map_name=adcc_te w=0.5 epsilon_anneal_time=1000000 central_mixer=atten
 
 # qatten
+# adcc
 python src/main.py --config=qatten --env-config=sc2te with env_args.map_name=adcc_te epsilon_anneal_time=1000000  
 
+# wwjz
+python src/main.py --config=qatten --env-config=sc2te with env_args.map_name=wwjz_te epsilon_anneal_time=200000
+
+#gmzz
+python src/main.py --config=qatten --env-config=sc2te with env_args.map_name=gmzz_te epsilon_anneal_time=1000000 mac=gmzz_basic_mac agent=rnn_new
+
 # test
-python src/main.py --config=qatten --env-config=sc2te with evaluate=True use_tensorboard=False save_replay=True local_results_path="eval_results" checkpoint_path="D:\.study\Senior_Fall\rl\StarCraft2_HLSMAC\RLalgs\wqmix-master\results\models\qatten__2025-12-14_05-51-22" env_args.map_name=adcc_te load_step=600284
+# adcc
+python src/main.py --config=qatten --env-config=sc2te with evaluate=True use_tensorboard=False save_replay=True local_results_path="eval_results" checkpoint_path="D:\.study\Senior_Fall\rl\StarCraft2_HLSMAC\RLalgs\wqmix-master\results\models\qatten__2025-12-15_23-29-31" env_args.map_name=adcc_te load_step=1800927
+
+# wwjz
+python src/main.py --config=qatten --env-config=sc2te with evaluate=True use_tensorboard=False save_replay=True local_results_path="eval_results" checkpoint_path="D:\.study\Senior_Fall\rl\StarCraft2_HLSMAC\RLalgs\wqmix-master\results\models\qatten__2025-12-15_23-29-31" env_args.map_name=wwjz_te load_step=1800927

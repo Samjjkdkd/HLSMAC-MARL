@@ -99,6 +99,7 @@ class SC2TacticsEnv(MultiAgentEnv):
         heuristic_ai=False,
         heuristic_rest=False,
         debug=False,
+        port=None,
     ):
         """
         Create a SC2ThirtySixTacticsEnv environment.
@@ -241,6 +242,7 @@ class SC2TacticsEnv(MultiAgentEnv):
         self.window_size = (window_size_x, window_size_y)
         self.replay_dir = replay_dir
         self.replay_prefix = replay_prefix
+        self.port = port
         # Actions
         self.n_actions_no_attack = 6
         self.n_actions_move = 4
@@ -295,7 +297,7 @@ class SC2TacticsEnv(MultiAgentEnv):
         self._controller = None
 
         # Try to avoid leaking SC2 processes on shutdown
-        atexit.register(lambda: self.close())
+        # atexit.register(lambda: self.close())
 
         self.delta_enemy = self.delta_deaths = self.delta_ally = 0
 
@@ -307,7 +309,7 @@ class SC2TacticsEnv(MultiAgentEnv):
         # Setting up the interface
         interface_options = sc_pb.InterfaceOptions(raw=True, score=False)
         self._sc2_proc = self._run_config.start(
-            window_size=self.window_size, want_rgb=False
+            window_size=self.window_size, want_rgb=False, port=self.port
         )
         self._controller = self._sc2_proc.controller
 

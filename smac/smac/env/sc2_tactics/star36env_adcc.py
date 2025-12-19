@@ -50,13 +50,13 @@ class SC2TacticsADCCEnv(te.SC2TacticsEnv):
         print("----------------------")
         
         # Initialize exploration history for each agent
-        self.exploration_history = {}
-        for agent_id in range(self.n_agents):
-            self.exploration_history[agent_id] = set()
+        # self.exploration_history = {}
+        # for agent_id in range(self.n_agents):
+        #     self.exploration_history[agent_id] = set()
         
-        # Initialize variables to track enemy base discovery for each agent
-        self.enemy_base_discovered = [False for _ in range(self.n_agents)]
-        self.enemy_base_reward_given = [False for _ in range(self.n_agents)]
+        # # Initialize variables to track enemy base discovery for each agent
+        # self.enemy_base_discovered = [False for _ in range(self.n_agents)]
+        # self.enemy_base_reward_given = [False for _ in range(self.n_agents)]
     
     def get_agent_action(self, a_id, action):
         """Construct the action for agent a_id."""
@@ -293,197 +293,197 @@ class SC2TacticsADCCEnv(te.SC2TacticsEnv):
             return True
         return False
     
-    def reset(self):
-        """Reset the environment and clear exploration history."""
-        result = super().reset()
+    # def reset(self):
+    #     """Reset the environment and clear exploration history."""
+    #     result = super().reset()
         
-        # Clear exploration history
-        for agent_id in range(self.n_agents):
-            self.exploration_history[agent_id] = set()
+    #     # Clear exploration history
+    #     for agent_id in range(self.n_agents):
+    #         self.exploration_history[agent_id] = set()
         
-        # Reset enemy base discovery flags for each agent
-        self.enemy_base_discovered = [False for _ in range(self.n_agents)]
-        self.enemy_base_reward_given = [False for _ in range(self.n_agents)]
+    #     # Reset enemy base discovery flags for each agent
+    #     self.enemy_base_discovered = [False for _ in range(self.n_agents)]
+    #     self.enemy_base_reward_given = [False for _ in range(self.n_agents)]
         
-        return result
+    #     return result
     
-    def reward_battle(self):
-        """Custom reward function for ADCC scenario.
-        This overrides the base class reward_battle method to provide map-specific rewards.
-        """
-        if self.reward_sparse:
-            return 0
+    # def reward_battle(self):
+    #     """Custom reward function for ADCC scenario.
+    #     This overrides the base class reward_battle method to provide map-specific rewards.
+    #     """
+    #     if self.reward_sparse:
+    #         return 0
 
-        reward = 0
-        delta_deaths = 0
-        delta_ally = 0
-        delta_enemy = 0
+    #     reward = 0
+    #     delta_deaths = 0
+    #     delta_ally = 0
+    #     delta_enemy = 0
 
-        neg_scale = self.reward_negative_scale
+    #     neg_scale = self.reward_negative_scale
 
-        # 1. Exploration reward: Encourage agents to explore new areas, prioritize distant areas from hatchery
-        exploration_reward = 0
+    #     # 1. Exploration reward: Encourage agents to explore new areas, prioritize distant areas from hatchery
+    #     exploration_reward = 0
         
-        # Find our hatchery position
-        hatchery_pos = None
-        for al_id, al_unit in self.agents.items():
-            if al_unit.unit_type == self.rlunit_ids.get("hatchery") and al_unit.health > 0:
-                hatchery_pos = (al_unit.pos.x, al_unit.pos.y)
-                break
+    #     # Find our hatchery position
+    #     hatchery_pos = None
+    #     for al_id, al_unit in self.agents.items():
+    #         if al_unit.unit_type == self.rlunit_ids.get("hatchery") and al_unit.health > 0:
+    #             hatchery_pos = (al_unit.pos.x, al_unit.pos.y)
+    #             break
         
-        for al_id, al_unit in self.agents.items():
-            if al_unit.health > 0 and al_unit.unit_type != self.rlunit_ids.get("hatchery"):  # Only reward alive non-hatchery agents
-                # Quantize position to a grid to track explored areas
-                grid_size = 4.0  # Increased for 80x80 map scale
-                grid_x = int(al_unit.pos.x // grid_size)
-                grid_y = int(al_unit.pos.y // grid_size)
-                grid_pos = (grid_x, grid_y)
+    #     for al_id, al_unit in self.agents.items():
+    #         if al_unit.health > 0 and al_unit.unit_type != self.rlunit_ids.get("hatchery"):  # Only reward alive non-hatchery agents
+    #             # Quantize position to a grid to track explored areas
+    #             grid_size = 4.0  # Increased for 80x80 map scale
+    #             grid_x = int(al_unit.pos.x // grid_size)
+    #             grid_y = int(al_unit.pos.y // grid_size)
+    #             grid_pos = (grid_x, grid_y)
                 
-                # Check if the unit is near map boundaries
-                # Define boundary threshold as the smaller value between hatchery's x and y coordinates
-                # Use dynamically obtained map size from parent class
-                map_size_x = self.map_x
-                map_size_y = self.map_y
-                # print(map_size_x, map_size_y)
-                if hatchery_pos is not None:
-                    # Use the smaller of hatchery's x and y coordinates as boundary threshold
-                    boundary_threshold = min(hatchery_pos[0], hatchery_pos[1])
-                else:
-                    # Default boundary threshold if hatchery not found
-                    boundary_threshold = 16.0
+    #             # Check if the unit is near map boundaries
+    #             # Define boundary threshold as the smaller value between hatchery's x and y coordinates
+    #             # Use dynamically obtained map size from parent class
+    #             map_size_x = self.map_x
+    #             map_size_y = self.map_y
+    #             map_size_mean = (map_size_x + map_size_y) / 2
+    #             # print(map_size_x, map_size_y)
+    #             if hatchery_pos is not None:
+    #                 # Use the smaller of hatchery's x and y coordinates as boundary threshold
+    #                 boundary_threshold = min(hatchery_pos[0], hatchery_pos[1], map_size_mean/6)
+    #             else:
+    #                 boundary_threshold = map_size_mean/6
+            
+    #             is_near_boundary = (al_unit.pos.x < boundary_threshold or 
+    #                                al_unit.pos.x > map_size_x - boundary_threshold or 
+    #                                al_unit.pos.y < boundary_threshold or 
+    #                                al_unit.pos.y > map_size_y - boundary_threshold)
                 
-                is_near_boundary = (al_unit.pos.x < boundary_threshold or 
-                                   al_unit.pos.x > map_size_x - boundary_threshold or 
-                                   al_unit.pos.y < boundary_threshold or 
-                                   al_unit.pos.y > map_size_y - boundary_threshold)
-                
-                # If this is a new grid position for this agent and not near boundary
-                if grid_pos not in self.exploration_history[al_id] and not is_near_boundary:
-                    self.exploration_history[al_id].add(grid_pos)
+    #             # If this is a new grid position for this agent and not near boundary
+    #             if grid_pos not in self.exploration_history[al_id] and not is_near_boundary:
+    #                 self.exploration_history[al_id].add(grid_pos)
                     
-                    if hatchery_pos is not None:
-                        # Calculate distance from hatchery
-                        dist_from_hatchery = self.distance(
-                            al_unit.pos.x, al_unit.pos.y, hatchery_pos[0], hatchery_pos[1]
-                        )
+    #                 if hatchery_pos is not None:
+    #                     # Calculate distance from hatchery
+    #                     dist_from_hatchery = self.distance(
+    #                         al_unit.pos.x, al_unit.pos.y, hatchery_pos[0], hatchery_pos[1]
+    #                     )
                         
-                        # Determine which corner the hatchery is in
-                        map_center_x = map_size_x / 2
-                        map_center_y = map_size_y / 2
-                        hatchery_x = hatchery_pos[0]
-                        hatchery_y = hatchery_pos[1]
+    #                     # Determine which corner the hatchery is in
+    #                     map_center_x = map_size_x / 2
+    #                     map_center_y = map_size_y / 2
+    #                     hatchery_x = hatchery_pos[0]
+    #                     hatchery_y = hatchery_pos[1]
                         
-                        # Identify hatchery corner
-                        # Bottom-left: x < center, y < center
-                        # Top-left: x < center, y > center
-                        # Bottom-right: x > center, y < center
-                        # Top-right: x > center, y > center
-                        corner_reward_bonus = 0
+    #                     # Identify hatchery corner
+    #                     # Bottom-left: x < center, y < center
+    #                     # Top-left: x < center, y > center
+    #                     # Bottom-right: x > center, y < center
+    #                     # Top-right: x > center, y > center
+    #                     corner_reward_bonus = 0
                         
-                        if hatchery_x < map_center_x and hatchery_y < map_center_y:
-                            # Bottom-left corner - reward moving away from x=0 and y=0
-                            corner_reward_bonus = (al_unit.pos.x / map_size_x) + (al_unit.pos.y / map_size_y)
-                        elif hatchery_x < map_center_x and hatchery_y > map_center_y:
-                            # Top-left corner - reward moving away from x=0 and y=map_size_y
-                            corner_reward_bonus = (al_unit.pos.x / map_size_x) + ((map_size_y - al_unit.pos.y) / map_size_y)
-                        elif hatchery_x > map_center_x and hatchery_y < map_center_y:
-                            # Bottom-right corner - reward moving away from x=map_size_x and y=0
-                            corner_reward_bonus = ((map_size_x - al_unit.pos.x) / map_size_x) + (al_unit.pos.y / map_size_y)
-                        else:  # Top-right corner
-                            # Top-right corner - reward moving away from x=map_size_x and y=map_size_y
-                            corner_reward_bonus = ((map_size_x - al_unit.pos.x) / map_size_x) + ((map_size_y - al_unit.pos.y) / map_size_y)
+    #                     if hatchery_x < map_center_x and hatchery_y < map_center_y:
+    #                         # Bottom-left corner - reward moving away from x=0 and y=0
+    #                         corner_reward_bonus = (al_unit.pos.x / map_size_x) + (al_unit.pos.y / map_size_y)
+    #                     elif hatchery_x < map_center_x and hatchery_y > map_center_y:
+    #                         # Top-left corner - reward moving away from x=0 and y=map_size_y
+    #                         corner_reward_bonus = (al_unit.pos.x / map_size_x) + ((map_size_y - al_unit.pos.y) / map_size_y)
+    #                     elif hatchery_x > map_center_x and hatchery_y < map_center_y:
+    #                         # Bottom-right corner - reward moving away from x=map_size_x and y=0
+    #                         corner_reward_bonus = ((map_size_x - al_unit.pos.x) / map_size_x) + (al_unit.pos.y / map_size_y)
+    #                     else:  # Top-right corner
+    #                         # Top-right corner - reward moving away from x=map_size_x and y=map_size_y
+    #                         corner_reward_bonus = ((map_size_x - al_unit.pos.x) / map_size_x) + ((map_size_y - al_unit.pos.y) / map_size_y)
                         
-                        # Scale reward based on distance from hatchery and corner direction
-                        # Adjusted for 96x96 map (was 20 for 80x80)
-                        distance_bonus = min(5, dist_from_hatchery / 24)  # Base distance bonus
-                        corner_bonus = min(5, corner_reward_bonus * 2.5)  # Scale corner reward (max 5)
-                        area_reward = distance_bonus + corner_bonus
-                        # print(distance_bonus, corner_bonus)
-                    else:
-                        # If no hatchery found, use base reward
-                        area_reward = 0
+    #                     # Scale reward based on distance from hatchery and corner direction
+    #                     # Adjusted for 96x96 map (was 20 for 80x80)
+    #                     distance_bonus = min(5, dist_from_hatchery / 24)  # Base distance bonus
+    #                     corner_bonus = min(5, corner_reward_bonus * 2.5)  # Scale corner reward (max 5)
+    #                     area_reward = distance_bonus + corner_bonus
+    #                     # print(distance_bonus, corner_bonus)
+    #                 else:
+    #                     # If no hatchery found, use base reward
+    #                     area_reward = 0
 
-                    exploration_reward += area_reward
-        reward += exploration_reward
+    #                 exploration_reward += area_reward
+    #     reward += exploration_reward
         
-        # 2. Enemy base detection reward: High reward for each agent that first sees enemy CommandCenter
-        for al_id, al_unit in self.agents.items():
-            if al_unit.health > 0:
-                x = al_unit.pos.x
-                y = al_unit.pos.y
-                sight_range = self.unit_sight_range(al_id)
+    #     # 2. Enemy base detection reward: High reward for each agent that first sees enemy CommandCenter
+    #     for al_id, al_unit in self.agents.items():
+    #         if al_unit.health > 0:
+    #             x = al_unit.pos.x
+    #             y = al_unit.pos.y
+    #             sight_range = self.unit_sight_range(al_id)
                 
-                # Check if any enemy unit is a CommandCenter and within sight range
-                for e_id, e_unit in self.enemies.items():
-                    if e_unit.health > 0 and e_unit.unit_type == 18:  # 18 is CommandCenter
-                        dist = self.distance(x, y, e_unit.pos.x, e_unit.pos.y)
-                        if dist < sight_range:
-                            self.enemy_base_discovered[al_id] = True
-                            break
+    #             # Check if any enemy unit is a CommandCenter and within sight range
+    #             for e_id, e_unit in self.enemies.items():
+    #                 if e_unit.health > 0 and e_unit.unit_type == 18:  # 18 is CommandCenter
+    #                     dist = self.distance(x, y, e_unit.pos.x, e_unit.pos.y)
+    #                     if dist < sight_range:
+    #                         self.enemy_base_discovered[al_id] = True
+    #                         break
                 
-                # Give a large one-time reward when this agent first detects enemy base
-                if self.enemy_base_discovered[al_id] and not self.enemy_base_reward_given[al_id]:
-                    self.enemy_base_reward_given[al_id] = True
-                    reward += 100  # Very large reward for finding enemy base
+    #             # Give a large one-time reward when this agent first detects enemy base
+    #             if self.enemy_base_discovered[al_id] and not self.enemy_base_reward_given[al_id]:
+    #                 self.enemy_base_reward_given[al_id] = True
+    #                 reward += 100  # Very large reward for finding enemy base
         
-        # 3. Enemy base destruction reward: Increased reward for destroying enemy CommandCenter
-        enemy_command_center_destroyed = self.check_structure(ally=False)
-        if enemy_command_center_destroyed:
-            reward += 1000  # Massive reward for destroying enemy base
+    #     # 3. Enemy base destruction reward: Increased reward for destroying enemy CommandCenter
+    #     enemy_command_center_destroyed = self.check_structure(ally=False)
+    #     if enemy_command_center_destroyed:
+    #         reward += 1000  # Massive reward for destroying enemy base
         
-        # 4. Original battle rewards (damage and kills)
-        # Update deaths
-        for al_id, al_unit in self.agents.items():
-            if self.check_unit_condition(al_unit, al_id):
-                # did not die so far
-                prev_health = 0
-                if self.previous_ally_units[al_id] == None:
-                    prev_health = al_unit.health + al_unit.shield
-                else:
-                    prev_health = (
-                        self.previous_ally_units[al_id].health
-                        + self.previous_ally_units[al_id].shield
-                    )
-                if al_unit.health == 0:
-                    # just died
-                    self.death_tracker_ally[al_id] = 1
-                    if not self.reward_only_positive:
-                        delta_deaths -= self.reward_death_value * neg_scale
-                    delta_ally += prev_health * neg_scale
-                else:
-                    # still alive
-                    delta_ally += neg_scale * (
-                        prev_health - al_unit.health - al_unit.shield
-                    )
+    #     # 4. Original battle rewards (damage and kills)
+    #     # Update deaths
+    #     for al_id, al_unit in self.agents.items():
+    #         if self.check_unit_condition(al_unit, al_id):
+    #             # did not die so far
+    #             prev_health = 0
+    #             if self.previous_ally_units[al_id] == None:
+    #                 prev_health = al_unit.health + al_unit.shield
+    #             else:
+    #                 prev_health = (
+    #                     self.previous_ally_units[al_id].health
+    #                     + self.previous_ally_units[al_id].shield
+    #                 )
+    #             if al_unit.health == 0:
+    #                 # just died
+    #                 self.death_tracker_ally[al_id] = 1
+    #                 if not self.reward_only_positive:
+    #                     delta_deaths -= self.reward_death_value * neg_scale
+    #                 delta_ally += prev_health * neg_scale
+    #             else:
+    #                 # still alive
+    #                 delta_ally += neg_scale * (
+    #                     prev_health - al_unit.health - al_unit.shield
+    #                 )
 
-        for e_id, e_unit in self.enemies.items():
-            if e_unit != None and not self.death_tracker_enemy[e_id]:
-                prev_health = (
-                    self.previous_enemy_units[e_id].health
-                    + self.previous_enemy_units[e_id].shield
-                )
-                # Check if this is the enemy CommandCenter
-                is_command_center = (e_unit.unit_type == 18)
+    #     for e_id, e_unit in self.enemies.items():
+    #         if e_unit != None and not self.death_tracker_enemy[e_id]:
+    #             prev_health = (
+    #                 self.previous_enemy_units[e_id].health
+    #                 + self.previous_enemy_units[e_id].shield
+    #             )
+    #             # Check if this is the enemy CommandCenter
+    #             is_command_center = (e_unit.unit_type == 18)
                 
-                # Damage multiplier for attacking enemy CommandCenter
-                damage_multiplier = 3.0 if is_command_center else 1.0
+    #             # Damage multiplier for attacking enemy CommandCenter
+    #             damage_multiplier = 3.0 if is_command_center else 1.0
                 
-                if e_unit.health == 0:
-                    self.death_tracker_enemy[e_id] = 1
-                    delta_deaths += self.reward_death_value
-                    delta_enemy += prev_health * damage_multiplier
-                else:
-                    delta_enemy += (prev_health - e_unit.health - e_unit.shield) * damage_multiplier
+    #             if e_unit.health == 0:
+    #                 self.death_tracker_enemy[e_id] = 1
+    #                 delta_deaths += self.reward_death_value
+    #                 delta_enemy += prev_health * damage_multiplier
+    #             else:
+    #                 delta_enemy += (prev_health - e_unit.health - e_unit.shield) * damage_multiplier
 
-        # Add original battle rewards
-        if self.reward_only_positive:
-            battle_reward = abs(delta_enemy + delta_deaths)  # shield regeneration
-        else:
-            battle_reward = delta_enemy + delta_deaths - delta_ally
+    #     # Add original battle rewards
+    #     if self.reward_only_positive:
+    #         battle_reward = abs(delta_enemy + delta_deaths)  # shield regeneration
+    #     else:
+    #         battle_reward = delta_enemy + delta_deaths - delta_ally
         
-        reward += battle_reward
+    #     reward += battle_reward
 
-        self.delta_enemy, self.delta_deaths, self.delta_ally = delta_enemy, delta_deaths, delta_ally
-        # print("adcc_reward:", reward, "delta_enemy:", delta_enemy, "delta_deaths:", delta_deaths, "delta_ally:", delta_ally,
-        #       "exploration_reward:", exploration_reward, "battle_reward:", battle_reward)
-        return reward
+    #     self.delta_enemy, self.delta_deaths, self.delta_ally = delta_enemy, delta_deaths, delta_ally
+    #     # print("adcc_reward:", reward, "delta_enemy:", delta_enemy, "delta_deaths:", delta_deaths, "delta_ally:", delta_ally,
+    #     #       "exploration_reward:", exploration_reward, "battle_reward:", battle_reward)
+    #     return reward
