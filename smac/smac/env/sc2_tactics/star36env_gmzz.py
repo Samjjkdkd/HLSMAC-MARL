@@ -397,7 +397,7 @@ class SC2TacticsGMZZEnv(te.SC2TacticsEnv):
         
         # reward for lower the depot while zergling is below and raise the depot while zergling is above
         if len(self.enemy_has_beento_upper) < 8 and depot_raised == 3:
-            custom_reward -= 3
+            custom_reward -= 10
         if len(self.enemy_has_beento_upper) >= 8 and depot_raised < 3:
             custom_reward -= 30
 
