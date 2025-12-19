@@ -11,3 +11,6 @@ evaluate.sh
 run.sh
 visual_log.sh
 plot.py
+command.txt
+*.egg-info/
+/command.txt
