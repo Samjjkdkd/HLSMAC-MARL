@@ -111,64 +111,57 @@ class QattenLearner:
 
         # Calculate targets based on selected TD method
         # Priority: n_step > lambda (if n_step > 1, use n_step TD regardless of lambda)
+
+        gamma = self.args.gamma
+        rewards_t = rewards            # [B, L, 1]  where L = T-1
+        terminated_t = terminated      # [B, L, 1]
+        V_tp1 = target_max_qvals       # [B, L, ...]  (after mixer usually [B, L, 1])
+
+        B, L = rewards_t.size(0), rewards_t.size(1)
+        targets = th.zeros_like(rewards_t)  # [B, L, 1]
+
         if self.n_step > 1:
-            # n-step TD implementation
-            batch_size = rewards.size(0)
-            max_seq_len = rewards.size(1)
-            targets = th.zeros_like(rewards)
-            
-            # Calculate discounted returns for each step
-            for t in range(max_seq_len):
-                # Initialize the target with the current reward
-                target = rewards[:, t]
-                
-                # Calculate discounted returns for up to n_steps
-                for i in range(1, self.n_step):
-                    if t + i < max_seq_len:
-                        # Check if the episode terminated before this step
-                        terminated_before = terminated[:, t:t+i].any(dim=1).float()
-                        # Only add the reward if the episode hasn't terminated
-                        target += (self.args.gamma ** i) * (1 - terminated_before) * rewards[:, t+i]
-                    else:
-                        # Reached the end of the sequence
+            n = self.n_step
+
+            for t in range(L):
+                # accumulate sum_{i=0}^{n-1} gamma^i r_{t+i}, stop if terminated happens
+                G = th.zeros_like(rewards_t[:, t])  # [B, 1]
+                alive = th.ones_like(terminated_t[:, t])  # [B, 1], 1 means not terminated yet
+
+                for i in range(n):
+                    ti = t + i
+                    if ti >= L:
                         break
+                    # only add reward if episode still alive before taking r_{ti}
+                    G = G + (gamma ** i) * alive * rewards_t[:, ti]
+                    # after adding reward at ti, update alive for next step (if terminated at ti, future rewards/bootstrap shouldn't count)
+                    alive = alive * (1.0 - terminated_t[:, ti])
+
+                # bootstrap term: gamma^n * V(s_{t+n}) if we still alive through step t+n-1
+                bootstrap_idx = t + n - 1  # because V_tp1[:, k] == V(s_{k+1})
+                if bootstrap_idx < L:
+                    G = G + (gamma ** n) * alive * V_tp1[:, bootstrap_idx]
+
+                targets[:, t] = G
                 
-                # Add the bootstrap term if applicable
-                bootstrap_step = t + self.n_step
-                if bootstrap_step < max_seq_len:
-                    # Check if the episode terminated before the bootstrap step
-                    terminated_before_bootstrap = terminated[:, t:bootstrap_step].any(dim=1).float()
-                    # Only add the bootstrap if the episode hasn't terminated
-                    target += (self.args.gamma ** self.n_step) * (1 - terminated_before_bootstrap) * target_max_qvals[:, bootstrap_step]
-                elif bootstrap_step == max_seq_len:
-                    # At the end of the sequence, use the last available Q-value
-                    # Check from t to bootstrap_step-1 (i.e., max_seq_len-1) if any termination occurred
-                    terminated_before_end = terminated[:, t:max_seq_len].any(dim=1).float()
-                    target += (self.args.gamma ** self.n_step) * (1 - terminated_before_end) * target_max_qvals[:, -1]
-                
-                # Set the target for this time step
-                targets[:, t] = target
         elif self.lam == 0:
-            # TD(0) implementation
-            targets = rewards + self.args.gamma * (1 - terminated) * target_max_qvals
+            # TD(0): r_t + gamma * (1 - done_t) * V(s_{t+1})
+            targets = rewards_t + gamma * (1.0 - terminated_t) * V_tp1
+
         else:
-            # TD(λ) implementation with λ-return (backward view)
-            batch_size = rewards.size(0)
-            max_seq_len = rewards.size(1)
-            targets = th.zeros_like(rewards)
-            
-            # Start from the last time step and work backwards
-            running_return = target_max_qvals[:, -1]
-            targets[:, -1] = rewards[:, -1] + self.args.gamma * (1 - terminated[:, -1]) * running_return
-            
-            # Calculate for all previous time steps
-            for t in reversed(range(max_seq_len - 1)):
-                # The bootstrap term is the next state's Q-value if not terminated
-                bootstrap = self.args.gamma * (1 - terminated[:, t]) * target_max_qvals[:, t+1]
-                # Update running return with λ-weighted return
-                running_return = rewards[:, t] + self.args.gamma * (1 - terminated[:, t]) * (bootstrap + self.lam * (running_return - bootstrap))
-                # Set the target for this time step
-                targets[:, t] = running_return
+            # TD(lambda) backward recursion:
+            # G_t^λ = r_t + gamma*(1-done_t)*[(1-λ)*V(s_{t+1}) + λ*G_{t+1}^λ]
+            lam = self.lam
+
+            G = rewards_t[:, -1] + gamma * (1.0 - terminated_t[:, -1]) * V_tp1[:, -1]
+            targets[:, -1] = G
+
+            for t in reversed(range(L - 1)):
+                V_next = V_tp1[:, t]  # V(s_{t+1})
+                G = rewards_t[:, t] + gamma * (1.0 - terminated_t[:, t]) * (
+                    (1.0 - lam) * V_next + lam * G
+                )
+                targets[:, t] = G
 
         if show_demo:
             tot_q_data = chosen_action_qvals.detach().cpu().numpy()
