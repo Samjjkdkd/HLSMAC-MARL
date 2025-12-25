@@ -6,6 +6,7 @@ from modules.mixers.qmix import QMixer
 from modules.mixers.qatten import QattenMixer
 import torch as th
 from torch.optim import RMSprop
+from torch.optim import Adam
 import numpy as np
 
 
@@ -36,7 +37,16 @@ class QattenLearner:
             self.params += list(self.mixer.parameters())
             self.target_mixer = copy.deepcopy(self.mixer)
 
-        self.optimiser = RMSprop(params=self.params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
+        if args.optimiser == 'rmsprop':
+            self.optimiser = RMSprop(params=self.params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
+        elif args.optimiser == 'adam':
+            self.optimiser = Adam(
+                params=self.params,
+                lr=args.lr,
+                betas=(args.adam_beta1, args.adam_beta2),
+                eps=args.adam_eps,
+                weight_decay=args.adam_weight_decay
+            )
 
         # a little wasteful to deepcopy (e.g. duplicates action selector), but should work for any MAC
         self.target_mac = copy.deepcopy(mac)
