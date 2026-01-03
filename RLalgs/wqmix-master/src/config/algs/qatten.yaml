@@ -41,7 +41,7 @@ nonlinear: False  # non-linearity, for MMM2, it is True
 lambda: 0.9  # TD(λ) lambda parameter, 0.0 means TD(0), 1.0 means Monte Carlo
 
 # n step TD（优先，当n_step 不为1时，算法运行n step TD， 当n_step 为1时，算法运行TD(λ））
-n_step: 10
+n_step: 1
 
 burn_in_period: 100
 

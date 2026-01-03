@@ -260,176 +260,176 @@ class SC2TacticsGMZZEnv(te.SC2TacticsEnv):
             return True
         return False
     
-    def reset(self):
-        """Reset the environment."""
-        obs = super().reset()
-        self.height_lower = []
-        self.height_upper = []
-        self.depot_posX = []
-        self.depot_posY = []
-        for a_id, a_unit in self.agents.items():
-            if a_unit.unit_type == self.rlunit_ids.get("Depot") or a_unit.unit_type == self.rlunit_ids.get("DepotLowered"):
-                posX = int(a_unit.pos.x)
-                posY = int(a_unit.pos.y)
-                self.height_upper.append(self.terrain_height[posX, posY])
-                self.depot_posX.append(posX)
-                self.depot_posY.append(posY)
-        for e_id, e_unit in self.enemies.items():
-            if e_unit.unit_type == 105:
-                posX = int(e_unit.pos.x)
-                posY = int(e_unit.pos.y)
-                self.height_lower.append(self.terrain_height[posX, posY])
-        self.height_lower = np.mean(self.height_lower)
-        self.height_upper = np.mean(self.height_upper)
-        self.depot_posX = np.mean(self.depot_posX)
-        self.depot_posY = np.mean(self.depot_posY)
-        # print("Height lower:", self.height_lower)
-        # print("Height upper:", self.height_upper)
-        self.ally_has_beento_lower = []
-        self.enemy_has_beento_upper = []
-        self.enemy_has_goback = []
-        self.map_diagonal_distance = math.sqrt(
-            (self.map_x ** 2) + (self.map_y ** 2)
-        )
-        return obs
+    # def reset(self):
+    #     """Reset the environment."""
+    #     obs = super().reset()
+    #     self.height_lower = []
+    #     self.height_upper = []
+    #     self.depot_posX = []
+    #     self.depot_posY = []
+    #     for a_id, a_unit in self.agents.items():
+    #         if a_unit.unit_type == self.rlunit_ids.get("Depot") or a_unit.unit_type == self.rlunit_ids.get("DepotLowered"):
+    #             posX = int(a_unit.pos.x)
+    #             posY = int(a_unit.pos.y)
+    #             self.height_upper.append(self.terrain_height[posX, posY])
+    #             self.depot_posX.append(posX)
+    #             self.depot_posY.append(posY)
+    #     for e_id, e_unit in self.enemies.items():
+    #         if e_unit.unit_type == 105:
+    #             posX = int(e_unit.pos.x)
+    #             posY = int(e_unit.pos.y)
+    #             self.height_lower.append(self.terrain_height[posX, posY])
+    #     self.height_lower = np.mean(self.height_lower)
+    #     self.height_upper = np.mean(self.height_upper)
+    #     self.depot_posX = np.mean(self.depot_posX)
+    #     self.depot_posY = np.mean(self.depot_posY)
+    #     # print("Height lower:", self.height_lower)
+    #     # print("Height upper:", self.height_upper)
+    #     self.ally_has_beento_lower = []
+    #     self.enemy_has_beento_upper = []
+    #     self.enemy_has_goback = []
+    #     self.map_diagonal_distance = math.sqrt(
+    #         (self.map_x ** 2) + (self.map_y ** 2)
+    #     )
+    #     return obs
     
-    def reward_battle(self):
-        """Reward function when self.reward_spare==False.
-        Returns accumulative hit/shield point damage dealt to the enemy
-        + reward_death_value per enemy unit killed, and, in case
-        self.reward_only_positive == False, - (damage dealt to ally units
-        + reward_death_value per ally unit killed) * self.reward_negative_scale
-        """
-        if self.reward_sparse:
-            return 0
+    # def reward_battle(self):
+    #     """Reward function when self.reward_spare==False.
+    #     Returns accumulative hit/shield point damage dealt to the enemy
+    #     + reward_death_value per enemy unit killed, and, in case
+    #     self.reward_only_positive == False, - (damage dealt to ally units
+    #     + reward_death_value per ally unit killed) * self.reward_negative_scale
+    #     """
+    #     if self.reward_sparse:
+    #         return 0
 
-        reward = 0
-        delta_deaths = 0
-        delta_ally = 0
-        delta_enemy = 0
+    #     reward = 0
+    #     delta_deaths = 0
+    #     delta_ally = 0
+    #     delta_enemy = 0
 
-        neg_scale = self.reward_negative_scale
+    #     neg_scale = self.reward_negative_scale
 
-        # update deaths
-        for al_id, al_unit in self.agents.items():
-            if self.check_unit_condition(al_unit, al_id):
-                # did not die so far
-                prev_health = 0
-                if self.previous_ally_units[al_id] == None:
-                    prev_health = al_unit.health + al_unit.shield
-                else:
-                    prev_health = (
-                        self.previous_ally_units[al_id].health
-                        + self.previous_ally_units[al_id].shield
-                    )
-                if al_unit.health == 0:
-                    # just died
-                    self.death_tracker_ally[al_id] = 1
-                    if not self.reward_only_positive:
-                        delta_deaths -= self.reward_death_value * neg_scale
-                    delta_ally += prev_health * neg_scale
-                else:
-                    # still alive
-                    delta_ally += neg_scale * (
-                        prev_health - al_unit.health - al_unit.shield
-                    )
+    #     # update deaths
+    #     for al_id, al_unit in self.agents.items():
+    #         if self.check_unit_condition(al_unit, al_id):
+    #             # did not die so far
+    #             prev_health = 0
+    #             if self.previous_ally_units[al_id] == None:
+    #                 prev_health = al_unit.health + al_unit.shield
+    #             else:
+    #                 prev_health = (
+    #                     self.previous_ally_units[al_id].health
+    #                     + self.previous_ally_units[al_id].shield
+    #                 )
+    #             if al_unit.health == 0:
+    #                 # just died
+    #                 self.death_tracker_ally[al_id] = 1
+    #                 if not self.reward_only_positive:
+    #                     delta_deaths -= self.reward_death_value * neg_scale
+    #                 delta_ally += prev_health * neg_scale
+    #             else:
+    #                 # still alive
+    #                 delta_ally += neg_scale * (
+    #                     prev_health - al_unit.health - al_unit.shield
+    #                 )
 
-        for e_id, e_unit in self.enemies.items():
-            if e_unit != None and not self.death_tracker_enemy[e_id]:
-                prev_health = (
-                    self.previous_enemy_units[e_id].health
-                    + self.previous_enemy_units[e_id].shield
-                )
-                if e_unit.health == 0:
-                    self.death_tracker_enemy[e_id] = 1
-                    delta_deaths += self.reward_death_value
-                    delta_enemy += prev_health
-                else:
-                    delta_enemy += prev_health - e_unit.health - e_unit.shield
+    #     for e_id, e_unit in self.enemies.items():
+    #         if e_unit != None and not self.death_tracker_enemy[e_id]:
+    #             prev_health = (
+    #                 self.previous_enemy_units[e_id].health
+    #                 + self.previous_enemy_units[e_id].shield
+    #             )
+    #             if e_unit.health == 0:
+    #                 self.death_tracker_enemy[e_id] = 1
+    #                 delta_deaths += self.reward_death_value
+    #                 delta_enemy += prev_health
+    #             else:
+    #                 delta_enemy += prev_health - e_unit.health - e_unit.shield
 
-        # ========Custom Reward===========
-        custom_reward = 0
+    #     # ========Custom Reward===========
+    #     custom_reward = 0
         
-        # reward for depot sychronize
-        depot_raised = 0
-        for al_id, al_unit in self.agents.items():
-            if not self.check_unit_condition(al_unit, al_id):
-                continue
-            if al_unit.unit_type == self.rlunit_ids.get("Depot"):
-                depot_raised += 1
-        # if depot_raised == 0 or depot_raised == 3:
-        #     custom_reward += 3
+    #     # reward for depot sychronize
+    #     depot_raised = 0
+    #     for al_id, al_unit in self.agents.items():
+    #         if not self.check_unit_condition(al_unit, al_id):
+    #             continue
+    #         if al_unit.unit_type == self.rlunit_ids.get("Depot"):
+    #             depot_raised += 1
+    #     # if depot_raised == 0 or depot_raised == 3:
+    #     #     custom_reward += 3
 
 
-        # one time mass negative reward for ally goto lower height
-        for al_id, al_unit in self.agents.items():
-            if not self.check_unit_condition(al_unit, al_id):
-                continue
-            if al_id in self.ally_has_beento_lower:
-                continue
-            posX = int(al_unit.pos.x)
-            posY = int(al_unit.pos.y)
-            height = self.terrain_height[posX, posY]
-            if height < self.height_upper - 1e-3:
-                self.ally_has_beento_lower.append(al_id)
-                custom_reward -= 150
+    #     # one time mass negative reward for ally goto lower height
+    #     for al_id, al_unit in self.agents.items():
+    #         if not self.check_unit_condition(al_unit, al_id):
+    #             continue
+    #         if al_id in self.ally_has_beento_lower:
+    #             continue
+    #         posX = int(al_unit.pos.x)
+    #         posY = int(al_unit.pos.y)
+    #         height = self.terrain_height[posX, posY]
+    #         if height < self.height_upper - 1e-3:
+    #             self.ally_has_beento_lower.append(al_id)
+    #             custom_reward -= 150
 
-        # one time mass reward for enemy goto upper height and negative reward for go back to lower height
-        for e_id, e_unit in self.enemies.items():
-            if e_unit == None or self.death_tracker_enemy[e_id]:
-                continue
-            posX = int(e_unit.pos.x)
-            posY = int(e_unit.pos.y)
-            height = self.terrain_height[posX, posY]
-            dist_to_depot = self.distance(e_unit.pos.x, e_unit.pos.y, self.depot_posX, self.depot_posY)
-            dist_to_depot /= self.map_diagonal_distance
-            if e_id in self.enemy_has_beento_upper:
-                if e_id in self.enemy_has_goback:
-                    continue
-                if height < self.height_upper - 1e-2:
-                    self.enemy_has_goback.append(e_id)
-                    custom_reward -= 40
-            else:
-                if height >= self.height_upper and dist_to_depot > 0.1:
-                    self.enemy_has_beento_upper.append(e_id)
-                    custom_reward += 20
-
-        
-        # reward for lower the depot while zergling is below and raise the depot while zergling is above
-        if len(self.enemy_has_beento_upper) < 8 and depot_raised == 3:
-            custom_reward -= 10
-        if len(self.enemy_has_beento_upper) >= 8 and depot_raised < 3:
-            custom_reward -= 30
+    #     # one time mass reward for enemy goto upper height and negative reward for go back to lower height
+    #     for e_id, e_unit in self.enemies.items():
+    #         if e_unit == None or self.death_tracker_enemy[e_id]:
+    #             continue
+    #         posX = int(e_unit.pos.x)
+    #         posY = int(e_unit.pos.y)
+    #         height = self.terrain_height[posX, posY]
+    #         dist_to_depot = self.distance(e_unit.pos.x, e_unit.pos.y, self.depot_posX, self.depot_posY)
+    #         dist_to_depot /= self.map_diagonal_distance
+    #         if e_id in self.enemy_has_beento_upper:
+    #             if e_id in self.enemy_has_goback:
+    #                 continue
+    #             if height < self.height_upper - 1e-2:
+    #                 self.enemy_has_goback.append(e_id)
+    #                 custom_reward -= 40
+    #         else:
+    #             if height >= self.height_upper and dist_to_depot > 0.1:
+    #                 self.enemy_has_beento_upper.append(e_id)
+    #                 custom_reward += 20
 
         
-        # reward for ally stay away from depot
-        for al_id, al_unit in self.agents.items():
-            if not self.check_unit_condition(al_unit, al_id):
-                continue
-            if al_unit.unit_type == self.rlunit_ids.get("Depot") or al_unit.unit_type == self.rlunit_ids.get("DepotLowered"):
-                continue
-            dist_to_depot = self.distance(al_unit.pos.x, al_unit.pos.y, self.depot_posX, self.depot_posY)
-            dist_to_depot /= self.map_diagonal_distance
-            posX = int(al_unit.pos.x)
-            posY = int(al_unit.pos.y)
-            height = self.terrain_height[posX, posY]
-            # if dist_to_depot > 0.2 and height >= self.height_upper:
-            #     custom_reward += 1
-            if dist_to_depot <= 0.15 and len(self.enemy_has_beento_upper) < 8:
-                delta_enemy = 0  # no reward for damage when too close to depot and not all enemies have gone up
+    #     # reward for lower the depot while zergling is below and raise the depot while zergling is above
+    #     if len(self.enemy_has_beento_upper) < 8 and depot_raised == 3:
+    #         custom_reward -= 10
+    #     if len(self.enemy_has_beento_upper) >= 8 and depot_raised < 3:
+    #         custom_reward -= 30
 
-        # =============End================
-
-        if self.reward_only_positive:
-            reward = abs(delta_enemy + delta_deaths)  # shield regeneration
-        else:
-            reward = delta_enemy + delta_deaths - delta_ally
         
-        reward += custom_reward
+    #     # reward for ally stay away from depot
+    #     for al_id, al_unit in self.agents.items():
+    #         if not self.check_unit_condition(al_unit, al_id):
+    #             continue
+    #         if al_unit.unit_type == self.rlunit_ids.get("Depot") or al_unit.unit_type == self.rlunit_ids.get("DepotLowered"):
+    #             continue
+    #         dist_to_depot = self.distance(al_unit.pos.x, al_unit.pos.y, self.depot_posX, self.depot_posY)
+    #         dist_to_depot /= self.map_diagonal_distance
+    #         posX = int(al_unit.pos.x)
+    #         posY = int(al_unit.pos.y)
+    #         height = self.terrain_height[posX, posY]
+    #         # if dist_to_depot > 0.2 and height >= self.height_upper:
+    #         #     custom_reward += 1
+    #         if dist_to_depot <= 0.15 and len(self.enemy_has_beento_upper) < 8:
+    #             delta_enemy = 0  # no reward for damage when too close to depot and not all enemies have gone up
 
-        self.delta_enemy, self.delta_deaths, self.delta_ally = delta_enemy, delta_deaths, delta_ally
+    #     # =============End================
 
-        return reward
+    #     if self.reward_only_positive:
+    #         reward = abs(delta_enemy + delta_deaths)  # shield regeneration
+    #     else:
+    #         reward = delta_enemy + delta_deaths - delta_ally
+        
+    #     reward += custom_reward
+
+    #     self.delta_enemy, self.delta_deaths, self.delta_ally = delta_enemy, delta_deaths, delta_ally
+
+    #     return reward
     
-    def approximatelly_equal(self, a, b, tol=1e-3):
-        return abs(a - b) <= tol
+    # def approximatelly_equal(self, a, b, tol=1e-3):
+    #     return abs(a - b) <= tol

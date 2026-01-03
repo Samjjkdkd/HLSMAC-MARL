@@ -409,6 +409,24 @@ class SC2TacticsEnv(MultiAgentEnv):
         self._sc2_proc.close()
         self._launch()
         self.force_restarts += 1
+        # Reset environment state after full restart
+        self._episode_steps = 0
+        self.death_tracker_ally = np.zeros(self.n_agents)
+        self.death_tracker_enemy = np.zeros(self.n_enemies)
+        self.previous_ally_units = None
+        self.previous_enemy_units = None
+        self.win_counted = False
+        self.defeat_counted = False
+        self.last_action = np.zeros((self.n_agents, self.n_actions))
+        try:
+            self._obs = self._controller.observe()
+            self.init_units()
+        except (protocol.ProtocolError, protocol.ConnectionError):
+            # Try one more full restart if initial observation fails
+            self._sc2_proc.close()
+            self._launch()
+            self._obs = self._controller.observe()
+            self.init_units()
 
     def step(self, actions):
         """A single environment step. Returns reward, terminated, info."""
@@ -454,6 +472,11 @@ class SC2TacticsEnv(MultiAgentEnv):
         # Send action request
         req_actions = sc_pb.RequestAction(actions=sc_actions)
         try:
+            # Check if game is already ended before sending actions
+            current_obs = self._controller.observe()
+            if hasattr(current_obs, 'status') and current_obs.status == 3:  # Status.ended
+                return (0, 0, 0, 0), True, {}
+            
             self._controller.actions(req_actions)
             # Make step in SC2, i.e. apply actions
             self._controller.step(self._step_mul)
