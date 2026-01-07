@@ -48,6 +48,34 @@ class QattenLearner:
                 weight_decay=args.adam_weight_decay
             )
 
+        # ResQ specific optimiser parameters
+        self.use_resq = getattr(args, 'use_resq', False)
+        self.main_params = self.params  # Default assignment
+        self.main_optimiser = self.optimiser  # Default assignment
+        self.residual_optimiser = None  # Default assignment
+        
+        if self.use_resq:
+            self.residual_weight_decay = getattr(args, 'residual_weight_decay', 0.0)
+            if self.residual_weight_decay > 0 and hasattr(self.mixer, 'residual_network'):
+                # Separate optimizer for residual network with weight decay
+                self.residual_params = list(self.mixer.residual_network.parameters())
+                self.main_params = [p for p in self.params if p not in self.residual_params]
+                
+                self.main_optimiser = Adam(
+                    params=self.main_params,
+                    lr=args.lr,
+                    betas=(args.adam_beta1, args.adam_beta2),
+                    eps=args.adam_eps,
+                    weight_decay=0.0  # No weight decay for main network
+                )
+                self.residual_optimiser = Adam(
+                    params=self.residual_params,
+                    lr=args.lr,
+                    betas=(args.adam_beta1, args.adam_beta2),
+                    eps=args.adam_eps,
+                    weight_decay=self.residual_weight_decay
+                )
+
         # a little wasteful to deepcopy (e.g. duplicates action selector), but should work for any MAC
         self.target_mac = copy.deepcopy(mac)
 
@@ -113,11 +141,27 @@ class QattenLearner:
         # Mix
         if self.mixer is not None:
             if self.mixer.name == 'qatten':
-                chosen_action_qvals, q_attend_regs, head_entropies = self.mixer(chosen_action_qvals, batch["state"][:, :-1], actions)
-                target_max_qvals, _, _ = self.target_mixer(target_max_qvals, batch["state"][:, 1:], target_next_actions)
+                if self.use_resq:
+                    # Use ResQ enhanced mixer
+                    chosen_action_qvals, q_attend_regs, head_entropies, q_residual, consistency_loss = \
+                        self.mixer._forward_with_resq(chosen_action_qvals, batch["state"][:, :-1], actions, 
+                                                     actions, max_action_index[:, :-1])
+                    # For target mixer, we don't need ResQ (no residual computation)
+                    target_max_qvals, _, _ = self.target_mixer(target_max_qvals, batch["state"][:, 1:], target_next_actions)
+                else:
+                    # Use standard Qatten mixer
+                    chosen_action_qvals, q_attend_regs, head_entropies = self.mixer(chosen_action_qvals, batch["state"][:, :-1], actions)
+                    target_max_qvals, _, _ = self.target_mixer(target_max_qvals, batch["state"][:, 1:], target_next_actions)
+                    q_residual = None
+                    consistency_loss = None
             else:
                 chosen_action_qvals = self.mixer(chosen_action_qvals, batch["state"][:, :-1])
                 target_max_qvals = self.target_mixer(target_max_qvals, batch["state"][:, 1:])
+                q_residual = None
+                consistency_loss = None
+        else:
+            q_residual = None
+            consistency_loss = None
 
         # Calculate targets based on selected TD method
         # Priority: n_step > lambda (if n_step > 1, use n_step TD regardless of lambda)
@@ -192,7 +236,14 @@ class QattenLearner:
 
         # Normal L2 loss, take mean over actual data
         if self.mixer.name == 'qatten':
-            loss = (masked_td_error ** 2).sum() / mask.sum() + q_attend_regs
+            if self.use_resq:
+                # Include consistency loss for ResQ
+                total_loss = (masked_td_error ** 2).sum() / mask.sum() + q_attend_regs
+                if consistency_loss is not None:
+                    total_loss += consistency_loss
+                loss = total_loss
+            else:
+                loss = (masked_td_error ** 2).sum() / mask.sum() + q_attend_regs
         else:
             loss = (masked_td_error ** 2).sum() / mask.sum()
 
@@ -200,10 +251,26 @@ class QattenLearner:
         hit_prob = masked_hit_prob.sum() / mask.sum()
 
         # Optimise
-        self.optimiser.zero_grad()
-        loss.backward()
-        grad_norm = th.nn.utils.clip_grad_norm_(self.params, self.args.grad_norm_clip)
-        self.optimiser.step()
+        if self.use_resq and self.residual_optimiser is not None:
+            # Use separate optimizers for main and residual networks
+            self.main_optimiser.zero_grad()
+            self.residual_optimiser.zero_grad()
+            loss.backward()
+            
+            # Clip gradients separately if needed
+            grad_norm_main = th.nn.utils.clip_grad_norm_(self.main_params, self.args.grad_norm_clip)
+            grad_norm_residual = th.nn.utils.clip_grad_norm_(self.residual_params, self.args.grad_norm_clip)
+            
+            self.main_optimiser.step()
+            self.residual_optimiser.step()
+            
+            grad_norm = max(grad_norm_main, grad_norm_residual)
+        else:
+            # Use single optimizer for all parameters
+            self.optimiser.zero_grad()
+            loss.backward()
+            grad_norm = th.nn.utils.clip_grad_norm_(self.params, self.args.grad_norm_clip)
+            self.optimiser.step()
 
         if (episode_num - self.last_target_update_episode) / self.args.target_update_interval >= 1.0:
             self._update_targets()
@@ -220,6 +287,10 @@ class QattenLearner:
             if self.mixer.name == 'qatten':
                 # 监控头熵
                 [self.logger.log_stat('head_{}_entropy'.format(h_i), ent.item(), t_env) for h_i, ent in enumerate(head_entropies)]
+            if self.use_resq and q_residual is not None:
+                self.logger.log_stat("residual_q_mean", q_residual.mean().item(), t_env)
+                if consistency_loss is not None:
+                    self.logger.log_stat("consistency_loss", consistency_loss.item(), t_env)
             self.log_stats_t = t_env
 
     def _update_targets(self):
@@ -239,7 +310,13 @@ class QattenLearner:
         self.mac.save_models(path)
         if self.mixer is not None:
             th.save(self.mixer.state_dict(), "{}/mixer.th".format(path))
-        th.save(self.optimiser.state_dict(), "{}/opt.th".format(path))
+        
+        # Save optimizers appropriately
+        if self.use_resq and self.residual_optimiser is not None:
+            th.save(self.main_optimiser.state_dict(), "{}/main_opt.th".format(path))
+            th.save(self.residual_optimiser.state_dict(), "{}/residual_opt.th".format(path))
+        else:
+            th.save(self.optimiser.state_dict(), "{}/opt.th".format(path))
 
     def load_models(self, path):
         self.mac.load_models(path)
@@ -247,4 +324,16 @@ class QattenLearner:
         self.target_mac.load_models(path)
         if self.mixer is not None:
             self.mixer.load_state_dict(th.load("{}/mixer.th".format(path), map_location=lambda storage, loc: storage))
-        self.optimiser.load_state_dict(th.load("{}/opt.th".format(path), map_location=lambda storage, loc: storage))
+        
+        # Load optimizers appropriately
+        if self.use_resq and self.residual_optimiser is not None:
+            try:
+                self.main_optimiser.load_state_dict(th.load("{}/main_opt.th".format(path), map_location=lambda storage, loc: storage))
+                self.residual_optimiser.load_state_dict(th.load("{}/residual_opt.th".format(path), map_location=lambda storage, loc: storage))
+            except FileNotFoundError:
+                # Fallback to single optimizer if separate files don't exist
+                self.optimiser.load_state_dict(th.load("{}/opt.th".format(path), map_location=lambda storage, loc: storage))
+                self.main_optimiser = self.optimiser
+                self.residual_optimiser = None
+        else:
+            self.optimiser.load_state_dict(th.load("{}/opt.th".format(path), map_location=lambda storage, loc: storage))

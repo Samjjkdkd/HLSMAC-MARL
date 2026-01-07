@@ -20,6 +20,19 @@ class QattenMixer(nn.Module):
         self.embed_dim = args.mixing_embed_dim
         self.attend_reg_coef = args.attend_reg_coef
 
+        # ResQ (Residual Q) parameters
+        self.use_resq = getattr(args, 'use_resq', False)
+        if self.use_resq:
+            self.residual_embed_dim = getattr(args, 'residual_embed_dim', 32)
+            self.residual_layers = getattr(args, 'residual_layers', 2)
+            self.resq_init_scale = getattr(args, 'resq_init_scale', 0.1)
+            
+            # Build residual network Qr
+            self.residual_network = self._build_residual_network()
+            
+            # Consistency loss coefficient
+            self.consistency_loss_coef = getattr(args, 'consistency_loss_coef', 1.0)
+
         self.key_extractors = nn.ModuleList()
         self.selector_extractors = nn.ModuleList()
 
@@ -128,3 +141,81 @@ class QattenMixer(nn.Module):
         attend_mag_regs = self.attend_reg_coef * sum((logit ** 2).mean() for logit in head_attend_logits)
         head_entropies = [(-((probs + 1e-8).log() * probs).squeeze(dim=1).sum(1).mean()) for probs in head_attend_weights]
         return q_tot, attend_mag_regs, head_entropies
+
+    def _build_residual_network(self):
+        """Build the residual network Qr for ResQ"""
+        layers = []
+        
+        # Input dimension: state + agent_qs + actions
+        input_dim = self.state_dim + self.n_agents + self.n_agents * self.n_actions
+        
+        for i in range(self.residual_layers):
+            if i == 0:
+                layers.append(nn.Linear(input_dim, self.residual_embed_dim))
+            elif i == self.residual_layers - 1:
+                layers.append(nn.Linear(self.residual_embed_dim, 1))
+            else:
+                layers.append(nn.Linear(self.residual_embed_dim, self.residual_embed_dim))
+            
+            if i < self.residual_layers - 1:
+                layers.append(nn.ReLU())
+        
+        residual_net = nn.Sequential(*layers)
+        
+        # Initialize with small weights for stability
+        for layer in residual_net.modules():
+            if isinstance(layer, nn.Linear):
+                nn.init.uniform_(layer.weight, -self.resq_init_scale, self.resq_init_scale)
+                if layer.bias is not None:
+                    nn.init.uniform_(layer.bias, -self.resq_init_scale, self.resq_init_scale)
+        
+        return residual_net
+
+    def _compute_mask_function(self, chosen_actions, max_actions):
+        """Compute mask function wr(τ, u)"""
+        # wr = 0 if u == ũ (max_actions), wr = 1 otherwise
+        mask = (chosen_actions != max_actions).float()
+        return mask
+
+    def _forward_with_resq(self, agent_qs, states, actions, chosen_actions=None, max_actions=None):
+        """Forward pass with ResQ residual network"""
+        # First compute main Q_tot using original Qatten
+        q_tot_main, attend_mag_regs, head_entropies = self.forward(agent_qs, states, actions)
+        
+        if not self.use_resq:
+            return q_tot_main, attend_mag_regs, head_entropies, None, None
+        
+        # Compute residual Q value
+        batch_size = agent_qs.size(0)
+        agent_qs_flat = agent_qs.view(batch_size, -1)  # [batch_size, n_agents]
+        states_flat = states.view(batch_size, -1)  # [batch_size, state_dim]
+        
+        if chosen_actions is not None and max_actions is not None:
+            # Compute mask function wr
+            mask_wr = self._compute_mask_function(chosen_actions, max_actions)  # [batch_size, 1]
+            
+            # Prepare input for residual network
+            # Concatenate: states + agent_qs + actions_one_hot
+            actions_one_hot = F.one_hot(chosen_actions.squeeze(-1), num_classes=self.n_actions).float()
+            actions_one_hot = actions_one_hot.view(batch_size, -1)  # [batch_size, n_agents * n_actions]
+            
+            residual_input = th.cat([states_flat, agent_qs_flat, actions_one_hot], dim=1)
+            
+            # Forward through residual network
+            q_residual = self.residual_network(residual_input)  # [batch_size, 1]
+            
+            # Ensure residual is always non-positive (Q_r ≤ 0)
+            q_residual = -F.relu(q_residual)
+            
+            # Compute final Q with residual
+            mask_wr_expanded = mask_wr.unsqueeze(-1)  # [batch_size, 1, 1]
+            q_tot_final = q_tot_main + mask_wr_expanded * q_residual
+            
+            # Compute consistency loss term
+            consistency_loss = self.consistency_loss_coef * (q_tot_final - q_tot_main - mask_wr_expanded * q_residual).pow(2).mean()
+            
+            return q_tot_final, attend_mag_regs, head_entropies, q_residual, consistency_loss
+        
+        else:
+            # If no actions provided, return main Q only
+            return q_tot_main, attend_mag_regs, head_entropies, None, None

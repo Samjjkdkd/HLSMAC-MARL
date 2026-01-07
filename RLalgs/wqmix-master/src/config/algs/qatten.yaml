@@ -37,6 +37,14 @@ mask_dead: False
 weighted_head: False  # weighted head Q-values, for MMM2 and 3s5z_vs_3s6z, it is True
 nonlinear: False  # non-linearity, for MMM2, it is True
 
+# ResQ (Residual Q) parameters
+use_resq: False  # Enable ResQ residual network
+residual_embed_dim: 32  # Residual network embedding dimension
+residual_layers: 2  # Number of layers in residual network
+residual_weight_decay: 0.0  # Weight decay for residual network
+consistency_loss_coef: 1.0  # Consistency loss coefficient
+resq_init_scale: 0.1  # Initial scale for ResQ parameters
+
 # TD(λ) parameters
 lambda: 0.9  # TD(λ) lambda parameter, 0.0 means TD(0), 1.0 means Monte Carlo
 
