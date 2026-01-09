@@ -19,7 +19,7 @@ buffer_cpu_only: True # If true we won't keep all of the replay buffer in vram
 # --- Logging options ---
 use_tensorboard: True # Log results to tensorboard
 save_model: True # Save the models to disk
-save_model_interval: 200000 # Save models after this many timesteps
+save_model_interval: 500000 # Save models after this many timesteps
 
 #checkpoint_path: "/home/ubuntu/RLalgs/wqmix-master/results/models/gmzz_te_cwqmix_20250709/" - 2000287
 #checkpoint_path: "/home/ubuntu/RLalgs/wqmix-master/results/models/jctq_te_cwqmix_20250710/" - 2000021
