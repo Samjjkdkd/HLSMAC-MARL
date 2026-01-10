@@ -145,7 +145,7 @@ class QattenLearner:
                     # Use ResQ enhanced mixer
                     chosen_action_qvals, q_attend_regs, head_entropies, q_residual, consistency_loss = \
                         self.mixer._forward_with_resq(chosen_action_qvals, batch["state"][:, :-1], actions, 
-                                                     actions, max_action_index[:, :-1])
+                                                     actions, max_action_index)
                     # For target mixer, we don't need ResQ (no residual computation)
                     target_max_qvals, _, _ = self.target_mixer(target_max_qvals, batch["state"][:, 1:], target_next_actions)
                 else:
