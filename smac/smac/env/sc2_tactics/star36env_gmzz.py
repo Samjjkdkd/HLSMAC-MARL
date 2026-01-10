@@ -394,6 +394,19 @@ class SC2TacticsGMZZEnv(te.SC2TacticsEnv):
     #                 self.enemy_has_beento_upper.append(e_id)
     #                 custom_reward += 20
 
+        # # one time mass negative reward for ally goto lower height
+        # for al_id, al_unit in self.agents.items():
+        #     if not self.check_unit_condition(al_unit, al_id):
+        #         continue
+        #     if al_id in self.ally_has_beento_lower:
+        #         continue
+        #     posX = int(al_unit.pos.x)
+        #     posY = int(al_unit.pos.y)
+        #     height = self.terrain_height[posX, posY]
+        #     if height < self.height_upper - 1e-3 and len(self.enemy_has_beento_upper) < 8:
+        #         self.ally_has_beento_lower.append(al_id)
+        #         custom_reward -= 150
+
         
     #     # reward for lower the depot while zergling is below and raise the depot while zergling is above
     #     if len(self.enemy_has_beento_upper) < 8 and depot_raised == 3:
